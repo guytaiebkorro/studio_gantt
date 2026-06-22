@@ -415,9 +415,10 @@
 </style>
 <script>
   /* Apply the saved theme before first paint to avoid a flash.
-     Default is the dark cyberpunk theme; only "light" sets an attribute. */
+     Default is the clean light theme; only an explicit saved "dark" keeps
+     the dark cyberpunk base (no attribute). */
   try {
-    if (localStorage.getItem("gantt_theme_v1") === "light")
+    if (localStorage.getItem("gantt_theme_v1") !== "dark")
       document.documentElement.setAttribute("data-theme", "light");
   } catch (_) {}
 </script>
