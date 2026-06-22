@@ -40,6 +40,10 @@
   }
   #toolbar .title { font-weight: 700; font-size: 15px; margin-right: 6px; }
   #toolbar .spacer { flex: 1; }
+  .board-select {
+    font-size: 13px; font-family: inherit; color: var(--text); background: #fff;
+    border: 1px solid var(--border-strong); border-radius: 7px; padding: 6px 8px; max-width: 200px;
+  }
   .btn {
     border: 1px solid var(--border-strong); background: #fff; color: var(--text);
     padding: 6px 11px; border-radius: 7px; cursor: pointer; font-size: 12.5px;
@@ -80,7 +84,13 @@
   #save-mode-banner.show { display: block; }
 
   /* ---------- Main split ---------- */
-  #main { flex: 1; display: flex; overflow: hidden; }
+  #main { flex: 1; display: flex; overflow: hidden; position: relative; }
+  #loading {
+    position: absolute; inset: 0; background: var(--panel); z-index: 40;
+    display: none; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 14px; letter-spacing: .02em;
+  }
+  #loading.show { display: flex; }
 
   /* left list */
   #list-pane {
@@ -238,6 +248,9 @@
 <div id="app">
   <div id="toolbar">
     <span class="title">📊 Gantt</span>
+    <select id="board-select" class="board-select" title="Switch board"></select>
+    <button class="btn" id="board-new" title="Create a new board">＋ Board</button>
+    <span style="width:1px; height:22px; background:var(--border); margin:0 2px;"></span>
     <button class="btn" id="add-task">+ Task</button>
     <button class="btn" id="add-milestone">+ Milestone</button>
     <button class="btn" id="add-group">+ Group</button>
@@ -269,6 +282,7 @@
         </div>
       </div>
     </div>
+    <div id="loading" class="show">Loading board…</div>
   </div>
 </div>
 
@@ -359,13 +373,6 @@
     <div class="body">
       <div id="c-status" class="c-status">Not connected.</div>
       <div>
-        <label>JSONBin access key</label>
-        <input type="text" id="c-key" autocomplete="off" placeholder="X-Access-Key from jsonbin.io">
-        <div style="color:var(--muted); font-size:11.5px; margin-top:4px;">
-          jsonbin.io → API Keys. Use an <b>Access Key</b> with Read + Update (+ Create) — see README.
-        </div>
-      </div>
-      <div>
         <label>Bin ID (the board's address)</label>
         <input type="text" id="c-binid" autocomplete="off" placeholder="e.g. 6a38fcb4da38895dfeea6372">
         <div style="color:var(--muted); font-size:11.5px; margin-top:4px;">
@@ -375,8 +382,9 @@
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button class="btn primary" id="c-load">Load now</button>
         <button class="btn" id="c-savenow">Save now</button>
-        <button class="btn" id="c-create">Create new bin</button>
-        <button class="btn danger" id="c-clear" style="margin-left:auto;">Clear key</button>
+        <button class="btn" id="c-create">New board</button>
+        <button class="btn" id="c-rename">Rename board</button>
+        <button class="btn danger" id="c-delete">Delete board</button>
       </div>
       <div style="color:var(--muted); font-size:11.5px;">
         Changes auto-save to the cloud as you edit — no Save button needed.
@@ -392,7 +400,7 @@
 
 <!-- =================== EMBEDDED DATA (saved in place) =================== -->
 <script type="application/json" id="gantt-data">
-{"version":1,"settings":{"viewMode":"week"},"groups":[{"id":"g1","name":"Project","color":"#3b82f6"}],"tasks":[{"id":"t1","name":"Project kickoff","groupId":"g1","start":"2026-06-15","end":"2026-06-18","progress":100,"isMilestone":false,"deps":[]},{"id":"t2","name":"Requirements","groupId":"g1","start":"2026-06-18","end":"2026-06-24","progress":60,"isMilestone":false,"deps":["t1"]},{"id":"t3","name":"Design sign-off","groupId":"g1","start":"2026-06-24","end":"2026-06-24","progress":0,"isMilestone":true,"deps":["t2"]},{"id":"t4","name":"Build phase 1","groupId":"g1","start":"2026-06-25","end":"2026-07-08","progress":20,"isMilestone":false,"deps":["t3"]},{"id":"t5","name":"QA & launch","groupId":"g1","start":"2026-07-08","end":"2026-07-15","progress":0,"isMilestone":false,"deps":["t4"]}]}
+{"version":1,"settings":{"viewMode":"week"},"groups":[],"tasks":[]}
 </script>
 <!-- =================== /EMBEDDED DATA =================== -->
 
@@ -1291,6 +1299,7 @@
   const JB = "https://api.jsonbin.io/v3";
   const CLOUD_KEY = "gantt_jsonbin_v1";
   const DEFAULT_BIN_ID = "6a38fcb4da38895dfeea6372"; // shared board's bin id (the "address")
+  const DEFAULT_REGISTRY_ID = "6a390a19f5f4af5e291c2536"; // bin holding the list of boards [{id,name}]
   const DEFAULT_KEY = "$2a$10$.3MEUB1tMaYhFfPipJG4ROpKN3N1UFZU8uvkcQhSvTf.D5V0165om"; // embedded so the team needs zero setup
   function loadCloud() {
     const def = { apiKey: DEFAULT_KEY, binId: DEFAULT_BIN_ID };
@@ -1302,6 +1311,7 @@
   }
   function persistCloud() { try { localStorage.setItem(CLOUD_KEY, JSON.stringify(cloud)); } catch (_) {} }
   const cloud = loadCloud();
+  let registry = [];         // [{id, name}] list of boards, stored in the registry bin
   let loadedAt = 0;          // updatedAt of the version we currently hold (soft conflict check)
   let suppressAutosave = false;
   let cloudReady = false;    // becomes true only after a successful load/create — gates autosave so a
@@ -1339,6 +1349,7 @@
     } catch (err) {
       setSync("err"); setCloudStatus("Load failed: " + err.message, "err");
       toast("Cloud load failed: " + err.message);
+      render(); // show whatever we have so the board isn't stuck behind the loading veil
     }
   }
 
@@ -1375,29 +1386,107 @@
     autosaveTimer = setTimeout(saveToCloud, 700);
   }
 
-  async function createBin() {
-    if (!cloudConnected()) { toast("Add your JSONBin key first"); return; }
-    setCloudStatus("Creating new bin…", "");
+  // --- board registry (list of boards lives in its own bin) ---
+  async function loadRegistry() {
+    if (!cloudConnected() || !DEFAULT_REGISTRY_ID) return;
     try {
-      const res = await fetch(`${JB}/b`, {
-        method: "POST",
-        headers: Object.assign(jbHeaders(), { "X-Bin-Name": "gantt-board", "X-Bin-Private": "true" }),
-        body: JSON.stringify(wrap())
-      });
+      const res = await fetch(`${JB}/b/${DEFAULT_REGISTRY_ID}/latest`, { headers: jbHeaders() });
       if (!res.ok) throw new Error(await jbErr(res));
       const body = await res.json();
-      const id = body.metadata && body.metadata.id;
-      if (!id) throw new Error("no bin id returned");
-      cloud.binId = id; persistCloud();
-      $("c-binid").value = id;
-      loadedAt = Date.now();
-      cloudReady = true;
-      setCloudStatus("Created bin " + id, "ok");
-      toast("New bin created ✓");
+      registry = (body.record && Array.isArray(body.record.boards)) ? body.record.boards : [];
     } catch (err) {
-      setCloudStatus("Create failed: " + err.message, "err");
-      toast("Create bin failed: " + err.message);
+      console.warn("registry load failed:", err.message);
     }
+    renderBoardSelect();
+  }
+  async function saveRegistry() {
+    const res = await fetch(`${JB}/b/${DEFAULT_REGISTRY_ID}`, { method: "PUT", headers: jbHeaders(), body: JSON.stringify({ boards: registry }) });
+    if (!res.ok) throw new Error(await jbErr(res));
+  }
+  async function createBoardBin(name, data) {
+    const res = await fetch(`${JB}/b`, {
+      method: "POST",
+      headers: Object.assign(jbHeaders(), { "X-Bin-Name": ("gantt-" + name).slice(0, 120), "X-Bin-Private": "true" }),
+      body: JSON.stringify({ updatedAt: Date.now(), data })
+    });
+    if (!res.ok) throw new Error(await jbErr(res));
+    const body = await res.json();
+    const id = body.metadata && body.metadata.id;
+    if (!id) throw new Error("no bin id returned");
+    return id;
+  }
+
+  function renderBoardSelect() {
+    const sel = $("board-select");
+    if (!sel) return;
+    sel.innerHTML = registry.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+    if (cloud.binId && !registry.some(b => b.id === cloud.binId)) {
+      const o = document.createElement("option"); o.value = cloud.binId; o.textContent = "(current)"; sel.appendChild(o);
+    }
+    sel.value = cloud.binId || "";
+  }
+
+  async function switchBoard(id) {
+    if (!id || id === cloud.binId) return;
+    cloud.binId = id; persistCloud();
+    cloudReady = false;
+    renderBoardSelect();
+    $("loading").classList.add("show");
+    await loadFromCloud();
+    $("loading").classList.remove("show");
+  }
+
+  async function newBoard() {
+    if (!cloudConnected()) { toast("Cloud not configured"); return; }
+    const name = (prompt("Name for the new board:", "New board") || "").trim();
+    if (!name) return;
+    setSync("syncing"); setCloudStatus("Creating board…", "");
+    $("loading").classList.add("show");
+    try {
+      const empty = { version: 1, settings: { viewMode: state.settings.viewMode || "week" }, groups: [], tasks: [] };
+      const id = await createBoardBin(name, empty);
+      registry.push({ id, name });
+      await saveRegistry();
+      cloud.binId = id; persistCloud();
+      cloudReady = false;
+      renderBoardSelect();
+      await loadFromCloud(); // pulls the (empty) board and arms autosave
+      toast("Board “" + name + "” created ✓");
+    } catch (err) {
+      setSync("err"); setCloudStatus("Create failed: " + err.message, "err");
+      toast("Create board failed: " + err.message);
+    } finally {
+      $("loading").classList.remove("show");
+    }
+  }
+
+  async function renameBoard() {
+    if (!registry.length) { toast("No boards to rename"); return; }
+    const entry = registry.find(b => b.id === cloud.binId);
+    const name = (prompt("Rename board:", entry ? entry.name : "") || "").trim();
+    if (!name) return;
+    if (entry) entry.name = name; else registry.push({ id: cloud.binId, name });
+    try { await saveRegistry(); renderBoardSelect(); toast("Renamed ✓"); }
+    catch (err) { toast("Rename failed: " + err.message); }
+  }
+
+  async function deleteBoard() {
+    if (registry.length <= 1) { toast("Can't delete the only board"); return; }
+    const entry = registry.find(b => b.id === cloud.binId);
+    if (!confirm("Delete board “" + (entry ? entry.name : cloud.binId) + "”?\nThis removes it from the list and deletes its data.")) return;
+    const delId = cloud.binId;
+    registry = registry.filter(b => b.id !== delId);
+    try {
+      await saveRegistry();
+      try { await fetch(`${JB}/b/${delId}`, { method: "DELETE", headers: jbHeaders() }); } catch (_) {}
+      cloud.binId = registry[0].id; persistCloud();
+      cloudReady = false;
+      renderBoardSelect();
+      $("loading").classList.add("show");
+      await loadFromCloud();
+      $("loading").classList.remove("show");
+      toast("Board deleted");
+    } catch (err) { toast("Delete failed: " + err.message); }
   }
 
   // --- cloud UI ---
@@ -1415,18 +1504,21 @@
     if (conn) { setCloudStatus("Key set · bin " + (cloud.binId || "(none)"), "ok"); setSync("ok"); }
     else { setCloudStatus("No key yet — paste a JSONBin access key to sync.", ""); setSync("idle"); }
   }
-  function openCloud() { $("c-key").value = cloud.apiKey || ""; $("c-binid").value = cloud.binId || ""; updateCloudUI(); $("cloud-overlay").classList.add("show"); }
+  function openCloud() { $("c-binid").value = cloud.binId || ""; updateCloudUI(); $("cloud-overlay").classList.add("show"); }
   function closeCloud() { $("cloud-overlay").classList.remove("show"); }
 
   $("cloud-btn").addEventListener("click", openCloud);
   $("c-close").addEventListener("click", closeCloud);
   $("cloud-overlay").addEventListener("click", (e) => { if (e.target === $("cloud-overlay")) closeCloud(); });
-  $("c-key").addEventListener("change", () => { cloud.apiKey = $("c-key").value.trim(); persistCloud(); updateCloudUI(); });
   $("c-binid").addEventListener("change", () => { cloud.binId = $("c-binid").value.trim(); persistCloud(); updateCloudUI(); });
-  $("c-load").addEventListener("click", () => { cloud.apiKey = $("c-key").value.trim(); cloud.binId = $("c-binid").value.trim(); persistCloud(); loadFromCloud(); });
-  $("c-savenow").addEventListener("click", () => { cloud.apiKey = $("c-key").value.trim(); cloud.binId = $("c-binid").value.trim(); persistCloud(); saveToCloud(); });
-  $("c-create").addEventListener("click", () => { cloud.apiKey = $("c-key").value.trim(); persistCloud(); createBin(); });
-  $("c-clear").addEventListener("click", () => { cloud.apiKey = ""; persistCloud(); $("c-key").value = ""; updateCloudUI(); toast("Key cleared"); });
+  $("c-load").addEventListener("click", () => { const id = $("c-binid").value.trim(); if (id === cloud.binId) loadFromCloud(); else switchBoard(id); });
+  $("c-savenow").addEventListener("click", () => { saveToCloud(); });
+  $("c-create").addEventListener("click", () => { newBoard(); });
+  $("c-rename").addEventListener("click", () => { renameBoard(); });
+  $("c-delete").addEventListener("click", () => { deleteBoard(); });
+  // toolbar board switcher
+  $("board-select").addEventListener("change", (e) => { switchBoard(e.target.value); });
+  $("board-new").addEventListener("click", () => { newBoard(); });
 
   // ---------------------------------------------------------------------------
   // Data load / normalize
@@ -1505,14 +1597,31 @@
     renderSwatches();
     updateCloudUI();
     updateViewButtons();
-    render();
-    // scroll to today on load
+    if (cloudConnected()) {
+      // cloud-only: keep the loading veil up and don't render the embedded sample —
+      // render only once the cloud responds, so there's no flash of default data.
+      initCloud().finally(() => { $("loading").classList.remove("show"); scrollToToday(); });
+    } else {
+      $("loading").classList.remove("show");
+      render();
+      scrollToToday();
+    }
+  }
+  async function initCloud() {
+    await loadRegistry(); // populates `registry` + the board dropdown
+    // Restore the last board (remembered in localStorage). If it's missing/deleted,
+    // fall back to the first board in the registry.
+    if (registry.length && !registry.some(b => b.id === cloud.binId)) {
+      cloud.binId = registry[0].id; persistCloud(); renderBoardSelect();
+    }
+    if (cloud.binId) await loadFromCloud();
+    else render();
+  }
+  function scrollToToday() {
     requestAnimationFrame(() => {
       const x = dateToX(today());
-      chartPane.scrollLeft = Math.max(0, x - chartPane.clientWidth/2);
+      chartPane.scrollLeft = Math.max(0, x - chartPane.clientWidth / 2);
     });
-    // cloud-only: if configured, pull the latest from the cloud on open
-    if (cloudConnected() && cloud.binId) loadFromCloud();
   }
   init();
 })();
