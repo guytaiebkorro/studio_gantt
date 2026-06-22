@@ -114,6 +114,11 @@
   .list-row.group-head {
     font-weight: 700; background: #fbfcfe; color: var(--text); cursor: default;
   }
+  .list-row .caret {
+    flex: 0 0 auto; width: 22px; text-align: center; cursor: pointer; color: var(--muted);
+    font-size: 17px; line-height: 1; user-select: none; margin-left: -4px;
+  }
+  .list-row .caret:hover { color: var(--text); }
   .list-row.task-row { padding-left: 30px; cursor: grab; }
   .list-row.dragging { opacity: .4; }
   .list-row.drop-before { box-shadow: inset 0 2px 0 0 var(--accent); }
@@ -453,6 +458,18 @@
   let lastColor = null;                    // remembers the last custom color picked, to reuse on new tasks
   let dragging = false;                    // true while a bar/milestone/row drag is in progress (pauses cloud refresh)
   let locked = true;                       // app starts view-only every launch; click the lock button to edit
+  // collapsed groups, remembered per board in localStorage ("cookie")
+  const COLLAPSE_KEY = "gantt_collapsed_v1";
+  let collapsedMap = (() => { try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}"); } catch (_) { return {}; } })();
+  function boardKey() { return cloud.binId || "local"; }
+  function isCollapsed(gid) { return (collapsedMap[boardKey()] || []).includes(gid); }
+  function toggleCollapse(gid) {
+    const k = boardKey(), set = new Set(collapsedMap[k] || []);
+    set.has(gid) ? set.delete(gid) : set.add(gid);
+    collapsedMap[k] = [...set];
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsedMap)); } catch (_) {}
+    render();
+  }
 
   const supportsFS = typeof window.showSaveFilePicker === "function";
 
@@ -519,15 +536,21 @@
     const rows = [];
     const used = new Set();
     for (const g of state.groups) {
-      rows.push({ type: "group", group: g });
+      const count = state.tasks.filter(t => t.groupId === g.id).length;
+      rows.push({ type: "group", group: g, count });
+      state.tasks.forEach(t => { if (t.groupId === g.id) used.add(t.id); });
+      if (isCollapsed(g.id)) continue; // collapsed: skip its task rows (in both list and chart)
       for (const t of state.tasks) {
-        if (t.groupId === g.id) { rows.push({ type: "task", task: t, group: g }); used.add(t.id); }
+        if (t.groupId === g.id) rows.push({ type: "task", task: t, group: g });
       }
     }
     const orphans = state.tasks.filter(t => !used.has(t.id));
     if (orphans.length) {
-      rows.push({ type: "group", group: { id: "__none", name: "Ungrouped", color: "#94a3b8" } });
-      for (const t of orphans) rows.push({ type: "task", task: t, group: { color: "#94a3b8" } });
+      const ng = { id: "__none", name: "Ungrouped", color: "#94a3b8" };
+      rows.push({ type: "group", group: ng, count: orphans.length });
+      if (!isCollapsed("__none")) {
+        for (const t of orphans) rows.push({ type: "task", task: t, group: { color: "#94a3b8" } });
+      }
     }
     return rows;
   }
@@ -592,8 +615,13 @@
       const el = document.createElement("div");
       if (r.type === "group") {
         el.className = "list-row group-head";
-        el.innerHTML = `<span class="swatch" style="background:${r.group.color}"></span>
-                        <span class="nm">${esc(r.group.name)}</span>`;
+        const col = isCollapsed(r.group.id);
+        el.innerHTML = `<span class="caret" title="${col ? "Expand" : "Collapse"}">${col ? "▸" : "▾"}</span>
+                        <span class="swatch" style="background:${r.group.color}"></span>
+                        <span class="nm">${esc(r.group.name)}</span>` +
+                        (col ? `<span class="meta">${r.count}</span>` : "");
+        // caret toggles collapse (works even in view-only mode)
+        el.querySelector(".caret").addEventListener("click", (e) => { e.stopPropagation(); toggleCollapse(r.group.id); });
         if (r.group.id !== "__none") {
           el.style.cursor = "pointer";
           el.title = "Edit group";
