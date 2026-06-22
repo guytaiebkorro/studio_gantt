@@ -242,6 +242,22 @@
     z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none;
   }
   .toast.show { opacity: 1; }
+
+  /* ---------- View-only (locked) mode ---------- */
+  #lock-btn.locked { background: #fff7ed; border-color: #fdba74; color: #9a3412; }
+  #lock-btn.editing { background: #10b981; border-color: #10b981; color: #fff; }
+  /* hide every editing affordance while locked */
+  body.locked #add-task, body.locked #add-milestone, body.locked #add-group,
+  body.locked #board-new, body.locked #import-btn, body.locked #save-btn,
+  body.locked #f-save, body.locked #f-delete, body.locked #f-duplicate,
+  body.locked #c-savenow, body.locked #c-create, body.locked #c-rename, body.locked #c-delete { display: none !important; }
+  /* the editor opens read-only while locked */
+  body.locked #editor-overlay .body input,
+  body.locked #editor-overlay .body select,
+  body.locked #editor-overlay .body .swatches { pointer-events: none; opacity: .65; }
+  body.locked .bar, body.locked .milestone { cursor: default; }
+  body.locked .bar .handle { display: none; }
+  body.locked .list-row.task-row { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -262,6 +278,7 @@
     </div>
     <button class="btn" id="today-btn">Today</button>
     <span class="spacer"></span>
+    <button class="btn" id="lock-btn" title="Read-only — click to start editing">🔒 View only</button>
     <button class="btn" id="cloud-btn">☁ Cloud <span class="cloud-dot"></span></button>
     <button class="btn" id="export-btn">Export</button>
     <button class="btn" id="import-btn">Import</button>
@@ -435,6 +452,7 @@
   let rangeStart = null, rangeEnd = null;  // Date objects defining the visible timeline (grows on scroll)
   let lastColor = null;                    // remembers the last custom color picked, to reuse on new tasks
   let dragging = false;                    // true while a bar/milestone/row drag is in progress (pauses cloud refresh)
+  let locked = true;                       // app starts view-only every launch; click the lock button to edit
 
   const supportsFS = typeof window.showSaveFilePicker === "function";
 
@@ -601,9 +619,10 @@
                         <span class="nm">${mark}${esc(t.name)}</span>
                         <span class="meta">${t.isMilestone ? "" : t.progress + "% · "}${range}</span>`;
         el.addEventListener("click", () => openEditor(t.id));
-        // drag to reorder
-        el.draggable = true;
+        // drag to reorder (disabled while view-only)
+        el.draggable = !locked;
         el.addEventListener("dragstart", (e) => {
+          if (locked) { e.preventDefault(); return; }
           dragTaskId = t.id; dragging = true;
           if (e.dataTransfer) {
             e.dataTransfer.effectAllowed = "move";
@@ -833,6 +852,7 @@
   }
 
   function startMove(e, t, bar) {
+    if (locked) { select(t.id); return; }
     e.preventDefault();
     select(t.id);
     dragging = true;
@@ -863,6 +883,7 @@
   }
 
   function startMoveMilestone(e, t, m) {
+    if (locked) { select(t.id); return; }
     e.preventDefault();
     select(t.id);
     dragging = true;
@@ -887,6 +908,7 @@
   }
 
   function startResize(e, t, side) {
+    if (locked) return;
     e.preventDefault(); e.stopPropagation();
     select(t.id);
     dragging = true;
@@ -966,6 +988,7 @@
   const edOverlay = $("editor-overlay");
 
   function openEditor(id, presetGroupId) {
+    if (locked && !id) return; // can't add while view-only (existing items open read-only)
     editingId = id;
     const t = id ? state.tasks.find(x => x.id === id) : null;
     $("editor-title").textContent = id ? "Edit Task" : "New Task";
@@ -1062,6 +1085,7 @@
   edOverlay.addEventListener("click", (e) => { if (e.target === edOverlay) closeEditor(); });
 
   $("f-save").addEventListener("click", () => {
+    if (locked) return;
     const name = $("f-name").value.trim() || "Untitled";
     const isMs = $("f-milestone").checked;
     let start = $("f-start").value || fmtD(today());
@@ -1114,6 +1138,7 @@
   // ---------------------------------------------------------------------------
   const gOverlay = $("group-overlay");
   function openGroupEditor(id) {
+    if (locked) return; // view-only
     editingGroupId = id || null;
     const g = id ? state.groups.find(x => x.id === id) : null;
     $("group-title").textContent = id ? "Edit Group" : "Add Group";
@@ -1179,6 +1204,23 @@
     $("view-seg").querySelectorAll("button").forEach(b =>
       b.classList.toggle("active", b.dataset.view === state.settings.viewMode));
   }
+
+  // --- view-only (lock) mode ---
+  function applyLockUI() {
+    document.body.classList.toggle("locked", locked);
+    const btn = $("lock-btn");
+    btn.classList.toggle("locked", locked);
+    btn.classList.toggle("editing", !locked);
+    btn.textContent = locked ? "🔒 View only" : "🔓 Editing";
+    btn.title = locked ? "Read-only — click to start editing" : "Editing — click to lock (view only)";
+  }
+  function toggleLock() {
+    locked = !locked;
+    if (locked) closeEditor();
+    applyLockUI();
+    render(); // refresh draggable state on list rows etc.
+  }
+  $("lock-btn").addEventListener("click", toggleLock);
 
   // ---------------------------------------------------------------------------
   // Persistence
@@ -1251,6 +1293,7 @@
 
   // Unified save: cloud when connected (cloud-only mode), else fall back to file/download.
   async function save() {
+    if (locked) return; // view-only: nothing to save
     if (cloudConnected() && cloud.binId) return saveToCloud();
     return saveToFile();
   }
@@ -1427,7 +1470,7 @@
   const SAVE_MAX_MS = 15000;   // ...but force a save at least this often during continuous editing
   let autosaveTimer = null, firstDirtyAt = 0;
   function scheduleCloudSave() {
-    if (!cloudConnected() || !cloud.binId || suppressAutosave || !cloudReady) return;
+    if (!cloudConnected() || !cloud.binId || suppressAutosave || !cloudReady || locked) return;
     setSync("pending");
     const now = Date.now();
     if (!firstDirtyAt) firstDirtyAt = now;
@@ -1735,6 +1778,7 @@
       b.classList.add("show");
     }
     renderSwatches();
+    applyLockUI(); // start in view-only mode
     updateCloudUI();
     updateViewButtons();
     if (cloudConnected()) {
