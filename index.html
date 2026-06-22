@@ -250,6 +250,7 @@
     <span class="title">📊 Gantt</span>
     <select id="board-select" class="board-select" title="Switch board"></select>
     <button class="btn" id="board-new" title="Create a new board">＋ Board</button>
+    <button class="btn" id="refresh-btn" title="Pull the latest from the cloud">🔄</button>
     <span style="width:1px; height:22px; background:var(--border); margin:0 2px;"></span>
     <button class="btn" id="add-task">+ Task</button>
     <button class="btn" id="add-milestone">+ Milestone</button>
@@ -433,6 +434,7 @@
   let editingGroupId = null;
   let rangeStart = null, rangeEnd = null;  // Date objects defining the visible timeline (grows on scroll)
   let lastColor = null;                    // remembers the last custom color picked, to reuse on new tasks
+  let dragging = false;                    // true while a bar/milestone/row drag is in progress (pauses cloud refresh)
 
   const supportsFS = typeof window.showSaveFilePicker === "function";
 
@@ -602,14 +604,14 @@
         // drag to reorder
         el.draggable = true;
         el.addEventListener("dragstart", (e) => {
-          dragTaskId = t.id;
+          dragTaskId = t.id; dragging = true;
           if (e.dataTransfer) {
             e.dataTransfer.effectAllowed = "move";
             try { e.dataTransfer.setData("text/plain", t.id); } catch (_) {}
           }
           el.classList.add("dragging");
         });
-        el.addEventListener("dragend", () => { el.classList.remove("dragging"); clearDropMarks(); dragTaskId = null; });
+        el.addEventListener("dragend", () => { el.classList.remove("dragging"); clearDropMarks(); dragTaskId = null; dragging = false; });
         el.addEventListener("dragover", (e) => {
           if (!dragTaskId || dragTaskId === t.id) return;
           e.preventDefault();
@@ -833,6 +835,7 @@
   function startMove(e, t, bar) {
     e.preventDefault();
     select(t.id);
+    dragging = true;
     const dw = dayWidth();
     const startX = e.clientX;
     const origStart = parseD(t.start), origEnd = parseD(t.end);
@@ -844,6 +847,7 @@
       bar.style.left = (dateToX(addDays(origStart, delta))) + "px";
     }
     function up(ev) {
+      dragging = false;
       bar.releasePointerCapture(e.pointerId);
       bar.removeEventListener("pointermove", move);
       bar.removeEventListener("pointerup", up);
@@ -861,6 +865,7 @@
   function startMoveMilestone(e, t, m) {
     e.preventDefault();
     select(t.id);
+    dragging = true;
     const dw = dayWidth();
     const startX = e.clientX;
     const orig = parseD(t.start);
@@ -870,6 +875,7 @@
       m.style.left = (dateToX(addDays(orig, delta)) - 9) + "px";
     }
     function up(ev) {
+      dragging = false;
       m.releasePointerCapture(e.pointerId);
       m.removeEventListener("pointermove", move);
       m.removeEventListener("pointerup", up);
@@ -883,6 +889,7 @@
   function startResize(e, t, side) {
     e.preventDefault(); e.stopPropagation();
     select(t.id);
+    dragging = true;
     const dw = dayWidth();
     const startX = e.clientX;
     const origStart = parseD(t.start), origEnd = parseD(t.end);
@@ -901,6 +908,7 @@
       }
     }
     function up(ev) {
+      dragging = false;
       target.releasePointerCapture(e.pointerId);
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
@@ -1289,6 +1297,9 @@
   window.addEventListener("beforeunload", (e) => {
     if (dirty) { e.preventDefault(); e.returnValue = ""; }
   });
+  // flush any pending batched save when the tab is hidden (switch away / minimize),
+  // so the longer autosave window can't lose work
+  document.addEventListener("visibilitychange", () => { if (document.hidden && dirty) flushSave(); });
 
   function markDirty() { dirty = true; document.body.classList.add("dirty"); scheduleCloudSave(); }
   function clearDirty() { dirty = false; document.body.classList.remove("dirty"); }
@@ -1312,7 +1323,11 @@
   function persistCloud() { try { localStorage.setItem(CLOUD_KEY, JSON.stringify(cloud)); } catch (_) {} }
   const cloud = loadCloud();
   let registry = [];         // [{id, name}] list of boards, stored in the registry bin
-  let loadedAt = 0;          // updatedAt of the version we currently hold (soft conflict check)
+  let loadedAt = 0;          // updatedAt of the remote version our state descends from
+  let baseState = null;      // common ancestor (what the server had at last load/save) for 3-way merge
+  let pollTimer = null;      // 5s polling interval
+  const POLL_MS = 5000;      // how often to poll the current board for teammates' changes
+  const POLL_ENABLED = false; // OFF to conserve JSONBin free-tier requests. Set true to re-enable live polling.
   let suppressAutosave = false;
   let cloudReady = false;    // becomes true only after a successful load/create — gates autosave so a
                              // failed initial load can't overwrite the real bin with local sample data
@@ -1328,19 +1343,35 @@
     return null;
   }
 
+  // GET the current bin; returns {data, updatedAt} or null if the bin is empty/missing.
+  async function fetchRemote() {
+    const res = await fetch(`${JB}/b/${cloud.binId}/latest`, { headers: jbHeaders() });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(await jbErr(res));
+    const body = await res.json();
+    return unwrap(body.record);
+  }
+  // Re-render after a programmatic state swap without losing the user's scroll position.
+  function preserveAndRender() {
+    const sl = chartPane.scrollLeft, st = chartPane.scrollTop;
+    updateViewButtons(); render();
+    chartPane.scrollLeft = sl; chartPane.scrollTop = st;
+  }
+
   async function loadFromCloud() {
     if (!cloudConnected()) { toast("Add your JSONBin key first"); openCloud(); return; }
     if (!cloud.binId) { toast("Set a bin id first"); openCloud(); return; }
     setSync("syncing"); setCloudStatus("Loading bin " + cloud.binId + " …", "");
     try {
-      const res = await fetch(`${JB}/b/${cloud.binId}/latest`, { headers: jbHeaders() });
-      if (!res.ok) throw new Error(await jbErr(res));
-      const body = await res.json();
-      const u = unwrap(body.record);
-      if (!u) throw new Error("that bin isn't a Gantt board");
+      const u = await fetchRemote();
+      if (!u) { // empty bin — nothing to load yet
+        baseState = clone(state); loadedAt = 0; cloudReady = true;
+        setSync("ok"); setCloudStatus("Empty bin — edits will populate it.", ""); return;
+      }
       suppressAutosave = true;
       state = normalize(u.data);
       loadedAt = u.updatedAt;
+      baseState = clone(state);
       clearDirty(); updateViewButtons(); render();
       suppressAutosave = false;
       cloudReady = true;
@@ -1353,18 +1384,30 @@
     }
   }
 
-  // Save the whole board to the bin. Used by autosave (debounced) and "Save now".
+  // Save the whole board. Polls latest first and 3-way-merges so teammates' edits
+  // to other items aren't lost. Used by autosave (debounced) and "Save now".
   let savePromise = null, saveAgain = false;
   async function saveToCloud() {
     if (!cloudConnected() || !cloud.binId) return;
     if (savePromise) { saveAgain = true; return savePromise; } // coalesce overlapping saves
     setSync("syncing");
-    const payload = wrap();
     savePromise = (async () => {
       try {
+        // poll-before-write: fold in any remote changes since we loaded
+        let remote = null;
+        try { remote = await fetchRemote(); } catch (_) {}
+        if (remote && remote.updatedAt && remote.updatedAt !== loadedAt) {
+          const merged = merge3(baseState || remote.data, state, remote.data);
+          suppressAutosave = true;
+          state = normalize(merged);
+          preserveAndRender();
+          suppressAutosave = false;
+        }
+        const payload = { updatedAt: Date.now(), data: state };
         const res = await fetch(`${JB}/b/${cloud.binId}`, { method: "PUT", headers: jbHeaders(), body: JSON.stringify(payload) });
         if (!res.ok) throw new Error(await jbErr(res));
         loadedAt = payload.updatedAt;
+        baseState = clone(state);
         clearDirty();
         setSync("ok"); setCloudStatus("Saved to bin " + cloud.binId, "ok");
       } catch (err) {
@@ -1377,13 +1420,109 @@
     if (saveAgain) { saveAgain = false; return saveToCloud(); } // flush edits made mid-save
   }
 
-  // Debounced autosave, triggered from markDirty() on every edit.
-  let autosaveTimer = null;
+  // Batched autosave: wait for a pause in editing (idle), but never hold edits
+  // longer than the max cap. This collapses a burst of edits into one save to
+  // conserve API requests, while flush-on-hide keeps it safe.
+  const SAVE_IDLE_MS = 2500;   // save this long after the last edit
+  const SAVE_MAX_MS = 15000;   // ...but force a save at least this often during continuous editing
+  let autosaveTimer = null, firstDirtyAt = 0;
   function scheduleCloudSave() {
     if (!cloudConnected() || !cloud.binId || suppressAutosave || !cloudReady) return;
     setSync("pending");
+    const now = Date.now();
+    if (!firstDirtyAt) firstDirtyAt = now;
+    const wait = Math.min(SAVE_IDLE_MS, Math.max(0, SAVE_MAX_MS - (now - firstDirtyAt)));
     clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(saveToCloud, 700);
+    autosaveTimer = setTimeout(flushSave, wait);
+  }
+  function flushSave() {
+    clearTimeout(autosaveTimer); autosaveTimer = null; firstDirtyAt = 0;
+    if (dirty) saveToCloud();
+  }
+
+  // --- pull teammates' changes (shared by polling and the manual Refresh button) ---
+  function startPolling() { if (POLL_ENABLED && !pollTimer) pollTimer = setInterval(pollTick, POLL_MS); }
+  function uiBusy() { return dragging || !!document.querySelector(".overlay.show"); }
+  // Returns true if something new was pulled in.
+  async function syncFromRemote() {
+    const remote = await fetchRemote();
+    if (!remote || !remote.updatedAt || remote.updatedAt <= loadedAt) return false; // nothing new
+    if (dirty) {
+      // we have local edits — merge remote in, then let autosave push the result
+      const merged = merge3(baseState || remote.data, state, remote.data);
+      suppressAutosave = true; state = normalize(merged); preserveAndRender(); suppressAutosave = false;
+      baseState = clone(state); loadedAt = remote.updatedAt;
+      scheduleCloudSave();
+    } else {
+      // clean — just adopt the remote version
+      suppressAutosave = true; state = normalize(remote.data); preserveAndRender(); suppressAutosave = false;
+      baseState = clone(state); loadedAt = remote.updatedAt; cloudReady = true;
+      setSync("ok");
+    }
+    return true;
+  }
+  async function pollTick() {
+    if (!cloudConnected() || !cloud.binId || !cloudReady) return;
+    if (document.hidden || uiBusy() || savePromise) return; // don't disturb active work / save
+    try { await syncFromRemote(); } catch (_) { /* transient; try again next tick */ }
+  }
+  // Manual one-shot refresh (one GET). Bound to the 🔄 toolbar button.
+  async function refreshNow() {
+    if (!cloudConnected() || !cloud.binId) { toast("Cloud not configured"); return; }
+    if (uiBusy()) { toast("Finish your current edit first"); return; }
+    setSync("syncing");
+    try {
+      const changed = await syncFromRemote();
+      setSync("ok");
+      toast(changed ? "Refreshed ✓" : "Already up to date");
+    } catch (err) { setSync("err"); toast("Refresh failed: " + err.message); }
+  }
+
+  // --- 3-way merge (base = common ancestor, local = ours, remote = theirs) ---
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+  function merge3(base, local, remote) {
+    base = base || { groups: [], tasks: [], settings: {} };
+    return {
+      version: 1,
+      settings: mergeFields(base.settings || {}, local.settings || {}, remote.settings || {}),
+      groups: mergeList(base.groups || [], local.groups || [], remote.groups || []),
+      tasks: mergeList(base.tasks || [], local.tasks || [], remote.tasks || [])
+    };
+  }
+  function byId(arr) { const m = {}; for (const x of arr) m[x.id] = x; return m; }
+  function mergeFields(b, l, r) {
+    const out = clone(l); const keys = new Set([...Object.keys(l), ...Object.keys(r)]);
+    for (const k of keys) {
+      const lc = !eq(b ? b[k] : undefined, l[k]);
+      const rc = !eq(b ? b[k] : undefined, r[k]);
+      if (rc && !lc) out[k] = clone(r[k]); // remote changed this field, we didn't → take theirs
+      // otherwise keep local (covers we-changed and both-changed → ours wins)
+    }
+    return out;
+  }
+  function mergeList(base, local, remote) {
+    const b = byId(base), l = byId(local), r = byId(remote);
+    function resolve(id) {
+      const inB = id in b, inL = id in l, inR = id in r;
+      if (inL && inR) {
+        if (!inB) return clone(l);                 // both added → ours
+        const lc = !eq(b[id], l[id]), rc = !eq(b[id], r[id]);
+        if (lc && !rc) return clone(l[id]);
+        if (rc && !lc) return clone(r[id]);
+        if (!lc && !rc) return clone(l[id]);
+        return mergeFields(b[id], l[id], r[id]);   // both changed → field-level, ours wins ties
+      }
+      if (inB && !inL && inR) return eq(b[id], r[id]) ? undefined : clone(r[id]); // we deleted; keep only if they changed it
+      if (inB && inL && !inR) return eq(b[id], l[id]) ? undefined : clone(l[id]); // they deleted; keep only if we changed it
+      if (!inB && inL) return clone(l[id]);         // we added
+      if (!inB && inR) return clone(r[id]);         // they added
+      return undefined;
+    }
+    const out = [], seen = new Set();
+    for (const x of local) { if (seen.has(x.id)) continue; seen.add(x.id); const v = resolve(x.id); if (v) out.push(v); }
+    for (const x of remote) { if (seen.has(x.id)) continue; seen.add(x.id); const v = resolve(x.id); if (v) out.push(v); }
+    return out;
   }
 
   // --- board registry (list of boards lives in its own bin) ---
@@ -1519,6 +1658,7 @@
   // toolbar board switcher
   $("board-select").addEventListener("change", (e) => { switchBoard(e.target.value); });
   $("board-new").addEventListener("click", () => { newBoard(); });
+  $("refresh-btn").addEventListener("click", () => { refreshNow(); });
 
   // ---------------------------------------------------------------------------
   // Data load / normalize
@@ -1616,6 +1756,7 @@
     }
     if (cloud.binId) await loadFromCloud();
     else render();
+    startPolling(); // begin 5s team-sync polling once the board is loaded
   }
   function scrollToToday() {
     requestAnimationFrame(() => {
