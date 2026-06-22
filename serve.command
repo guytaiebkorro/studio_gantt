@@ -5,7 +5,7 @@
 
 cd "$(dirname "$0")" || exit 1
 PORT=8753
-URL="http://localhost:$PORT/gantt.html"
+URL="http://localhost:$PORT/index.html"
 
 echo "Serving $(pwd)"
 echo "Opening $URL"

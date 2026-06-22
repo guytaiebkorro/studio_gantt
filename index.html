@@ -66,6 +66,7 @@
     margin-left: 2px; vertical-align: middle;
   }
   body.cloud-on .cloud-dot { background: #10b981; }
+  body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
   .c-status {
     font-size: 12.5px; padding: 8px 10px; border-radius: 7px; background: #f1f4f9; color: var(--muted);
   }
@@ -351,40 +352,34 @@
   </div>
 </div>
 
-<!-- Dropbox cloud sync -->
+<!-- JSONBin cloud sync -->
 <div class="overlay" id="cloud-overlay">
   <div class="modal">
-    <h3>☁ Dropbox Sync</h3>
+    <h3>☁ Cloud Sync (JSONBin)</h3>
     <div class="body">
       <div id="c-status" class="c-status">Not connected.</div>
       <div>
-        <label>Dropbox app key</label>
-        <input type="text" id="c-appkey" autocomplete="off" placeholder="e.g. a1b2c3d4e5f6g7h">
+        <label>JSONBin access key</label>
+        <input type="text" id="c-key" autocomplete="off" placeholder="X-Access-Key from jsonbin.io">
         <div style="color:var(--muted); font-size:11.5px; margin-top:4px;">
-          From your Dropbox app at dropbox.com/developers/apps (see README to create one).
-        </div>
-      </div>
-      <div id="c-connect-row">
-        <button class="btn primary" id="c-connect">Connect Dropbox…</button>
-      </div>
-      <div id="c-code-row" style="display:none;">
-        <label>Paste the authorization code from Dropbox</label>
-        <div style="display:flex; gap:8px;">
-          <input type="text" id="c-code" autocomplete="off" placeholder="authorization code">
-          <button class="btn primary" id="c-finish" style="flex:0 0 auto;">Finish</button>
+          jsonbin.io → API Keys. Use an <b>Access Key</b> with Read + Update (+ Create) — see README.
         </div>
       </div>
       <div>
-        <label>File path (the JSON file in your Dropbox)</label>
-        <input type="text" id="c-path" autocomplete="off" placeholder="/gantt/board.json">
+        <label>Bin ID (the board's address)</label>
+        <input type="text" id="c-binid" autocomplete="off" placeholder="e.g. 6a38fcb4da38895dfeea6372">
         <div style="color:var(--muted); font-size:11.5px; margin-top:4px;">
-          Change this and click <b>Load</b> to switch to a different board/file.
+          Change this and click <b>Load</b> to switch boards. <b>Create new bin</b> makes a fresh one.
         </div>
       </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button class="btn" id="c-load">Load from Dropbox</button>
-        <button class="btn" id="c-save">Save now</button>
-        <button class="btn danger" id="c-disconnect" style="margin-left:auto;">Disconnect</button>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button class="btn primary" id="c-load">Load now</button>
+        <button class="btn" id="c-savenow">Save now</button>
+        <button class="btn" id="c-create">Create new bin</button>
+        <button class="btn danger" id="c-clear" style="margin-left:auto;">Clear key</button>
+      </div>
+      <div style="color:var(--muted); font-size:11.5px;">
+        Changes auto-save to the cloud as you edit — no Save button needed.
       </div>
     </div>
     <div class="foot">
@@ -1240,7 +1235,7 @@
 
   // Unified save: cloud when connected (cloud-only mode), else fall back to file/download.
   async function save() {
-    if (cloudConnected() && cloud.path) return saveToCloud();
+    if (cloudConnected() && cloud.binId) return saveToCloud();
     return saveToFile();
   }
   $("save-btn").addEventListener("click", save);
@@ -1287,189 +1282,151 @@
     if (dirty) { e.preventDefault(); e.returnValue = ""; }
   });
 
-  function markDirty() { dirty = true; document.body.classList.add("dirty"); }
+  function markDirty() { dirty = true; document.body.classList.add("dirty"); scheduleCloudSave(); }
   function clearDirty() { dirty = false; document.body.classList.remove("dirty"); }
 
   // ---------------------------------------------------------------------------
-  // Dropbox cloud sync (cloud-only mode; switch files via the path field)
+  // JSONBin cloud sync (cloud-only; autosaves on every change)
   // ---------------------------------------------------------------------------
-  const CLOUD_KEY = "gantt_cloud_v1";
-  const DEFAULT_APP_KEY = "koxutq2xbswshbf"; // Dropbox PKCE app key (public client id; safe to embed)
+  const JB = "https://api.jsonbin.io/v3";
+  const CLOUD_KEY = "gantt_jsonbin_v1";
+  const DEFAULT_BIN_ID = "6a38fcb4da38895dfeea6372"; // shared board's bin id (the "address")
+  const DEFAULT_KEY = "$2a$10$.3MEUB1tMaYhFfPipJG4ROpKN3N1UFZU8uvkcQhSvTf.D5V0165om"; // embedded so the team needs zero setup
   function loadCloud() {
-    const def = { appKey: DEFAULT_APP_KEY, refreshToken: "", path: "", accessToken: "", accessExpiry: 0 };
-    const merged = (() => {
-      try { return Object.assign(def, JSON.parse(localStorage.getItem(CLOUD_KEY) || "{}")); }
-      catch (_) { return def; }
-    })();
-    if (!merged.appKey) merged.appKey = DEFAULT_APP_KEY; // ensure the default fills in
+    const def = { apiKey: DEFAULT_KEY, binId: DEFAULT_BIN_ID };
+    let merged = def;
+    try { merged = Object.assign({}, def, JSON.parse(localStorage.getItem(CLOUD_KEY) || "{}")); } catch (_) {}
+    if (!merged.apiKey) merged.apiKey = DEFAULT_KEY;   // fall back to embedded defaults even if a blank was stored
+    if (!merged.binId) merged.binId = DEFAULT_BIN_ID;
     return merged;
   }
   function persistCloud() { try { localStorage.setItem(CLOUD_KEY, JSON.stringify(cloud)); } catch (_) {} }
   const cloud = loadCloud();
-  let cloudRev = null;       // Dropbox revision of the currently loaded file (for conflict detection)
-  let pkceVerifier = null;   // kept in memory between Connect and Finish
-  function cloudConnected() { return !!(cloud.refreshToken && cloud.appKey); }
+  let loadedAt = 0;          // updatedAt of the version we currently hold (soft conflict check)
+  let suppressAutosave = false;
+  let cloudReady = false;    // becomes true only after a successful load/create — gates autosave so a
+                             // failed initial load can't overwrite the real bin with local sample data
+  function cloudConnected() { return !!cloud.apiKey; }
+  function jbHeaders() { return { "X-Master-Key": cloud.apiKey, "Content-Type": "application/json" }; }
+  async function jbErr(res) { try { const t = await res.text(); return t || ("HTTP " + res.status); } catch (_) { return "HTTP " + res.status; } }
 
-  // --- PKCE helpers ---
-  function b64url(bytes) { let s = ""; bytes.forEach(b => s += String.fromCharCode(b)); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
-  function randString(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return b64url(a); }
-  async function pkceChallenge(verifier) {
-    if (window.crypto && crypto.subtle) {
-      try {
-        const dig = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-        return { method: "S256", challenge: b64url(new Uint8Array(dig)) };
-      } catch (_) {}
-    }
-    return { method: "plain", challenge: verifier }; // fallback if SubtleCrypto unavailable
-  }
-  async function dbxErr(res) { try { return (await res.text()) || ("HTTP " + res.status); } catch (_) { return "HTTP " + res.status; } }
-
-  // --- OAuth: connect / refresh ---
-  async function startConnect() {
-    const key = $("c-appkey").value.trim();
-    if (!key) { toast("Enter your Dropbox app key first"); return; }
-    cloud.appKey = key; persistCloud();
-    pkceVerifier = randString(48);
-    const { method, challenge } = await pkceChallenge(pkceVerifier);
-    const url = "https://www.dropbox.com/oauth2/authorize"
-      + "?client_id=" + encodeURIComponent(key)
-      + "&response_type=code&token_access_type=offline"
-      + "&code_challenge=" + encodeURIComponent(challenge)
-      + "&code_challenge_method=" + method;
-    window.open(url, "_blank", "noopener");
-    $("c-code-row").style.display = "";
-    setCloudStatus("Authorize in the new tab, then paste the code below.", "");
-  }
-  async function finishConnect() {
-    const code = $("c-code").value.trim();
-    if (!code) { toast("Paste the authorization code"); return; }
-    if (!pkceVerifier) { toast("Click Connect first"); return; }
-    setCloudStatus("Connecting…", "");
-    try {
-      const body = new URLSearchParams({ code, grant_type: "authorization_code", client_id: cloud.appKey, code_verifier: pkceVerifier });
-      const res = await fetch("https://api.dropboxapi.com/oauth2/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
-      if (!res.ok) throw new Error(await dbxErr(res));
-      const j = await res.json();
-      cloud.refreshToken = j.refresh_token || cloud.refreshToken;
-      cloud.accessToken = j.access_token;
-      cloud.accessExpiry = Date.now() + (j.expires_in || 14400) * 1000;
-      persistCloud();
-      $("c-code-row").style.display = "none"; $("c-code").value = "";
-      updateCloudUI();
-      toast("Connected to Dropbox ✓");
-      const p = $("c-path").value.trim();
-      if (p) { cloud.path = p; persistCloud(); loadFromCloud(); }
-    } catch (err) {
-      setCloudStatus("Connect failed: " + err.message, "err");
-      toast("Connect failed: " + err.message);
-    }
-  }
-  async function ensureAccessToken() {
-    if (cloud.accessToken && Date.now() < (cloud.accessExpiry || 0) - 60000) return cloud.accessToken;
-    if (!cloud.refreshToken) throw new Error("not connected");
-    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: cloud.refreshToken, client_id: cloud.appKey });
-    const res = await fetch("https://api.dropboxapi.com/oauth2/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
-    if (!res.ok) throw new Error("token refresh failed: " + await dbxErr(res));
-    const j = await res.json();
-    cloud.accessToken = j.access_token;
-    cloud.accessExpiry = Date.now() + (j.expires_in || 14400) * 1000;
-    persistCloud();
-    return cloud.accessToken;
+  // Wrap state with a timestamp so we can detect remote changes; tolerate raw state too.
+  function wrap() { return { updatedAt: Date.now(), data: state }; }
+  function unwrap(record) {
+    if (record && record.data && record.data.tasks) return { data: record.data, updatedAt: record.updatedAt || 0 };
+    if (record && record.tasks) return { data: record, updatedAt: 0 }; // legacy: raw state
+    return null;
   }
 
-  // --- file load / save ---
   async function loadFromCloud() {
-    if (!cloudConnected()) { toast("Connect Dropbox first"); openCloud(); return; }
-    const path = cloud.path;
-    if (!path) { toast("Set a file path first"); openCloud(); return; }
-    setCloudStatus("Loading " + path + " …", "");
+    if (!cloudConnected()) { toast("Add your JSONBin key first"); openCloud(); return; }
+    if (!cloud.binId) { toast("Set a bin id first"); openCloud(); return; }
+    setSync("syncing"); setCloudStatus("Loading bin " + cloud.binId + " …", "");
     try {
-      const at = await ensureAccessToken();
-      const res = await fetch("https://content.dropboxapi.com/2/files/download", {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + at, "Dropbox-API-Arg": JSON.stringify({ path }) }
-      });
-      if (res.status === 409) { // path/not_found → treat as a new, empty file
-        cloudRev = null;
-        setCloudStatus("No file at " + path + " yet — Save to create it.", "");
-        toast("No file yet — Save to create it");
-        return;
-      }
-      if (!res.ok) throw new Error(await dbxErr(res));
-      const text = await res.text();
-      let meta = {}; try { meta = JSON.parse(res.headers.get("Dropbox-API-Result") || "{}"); } catch (_) {}
-      cloudRev = meta.rev || null;
-      const data = JSON.parse(text);
-      if (!data.tasks) throw new Error("that file isn't a Gantt JSON");
-      state = normalize(data);
+      const res = await fetch(`${JB}/b/${cloud.binId}/latest`, { headers: jbHeaders() });
+      if (!res.ok) throw new Error(await jbErr(res));
+      const body = await res.json();
+      const u = unwrap(body.record);
+      if (!u) throw new Error("that bin isn't a Gantt board");
+      suppressAutosave = true;
+      state = normalize(u.data);
+      loadedAt = u.updatedAt;
       clearDirty(); updateViewButtons(); render();
-      setCloudStatus("Loaded " + path + (cloudRev ? " (rev " + cloudRev.slice(0, 6) + ")" : ""), "ok");
-      toast("Loaded from Dropbox ✓");
+      suppressAutosave = false;
+      cloudReady = true;
+      setSync("ok"); setCloudStatus("Loaded bin " + cloud.binId, "ok");
+      toast("Loaded from cloud ✓");
     } catch (err) {
-      setCloudStatus("Load failed: " + err.message, "err");
+      setSync("err"); setCloudStatus("Load failed: " + err.message, "err");
       toast("Cloud load failed: " + err.message);
     }
   }
-  async function saveToCloud(force) {
-    if (!cloudConnected()) { toast("Connect Dropbox first"); openCloud(); return; }
-    const path = cloud.path;
-    if (!path) { toast("Set a file path first"); openCloud(); return; }
-    setCloudStatus("Saving " + path + " …", "");
-    try {
-      const at = await ensureAccessToken();
-      const arg = { path, mode: (cloudRev && !force) ? { ".tag": "update", update: cloudRev } : "overwrite", mute: true, autorename: false };
-      const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + at, "Dropbox-API-Arg": JSON.stringify(arg), "Content-Type": "application/octet-stream" },
-        body: serialize()
-      });
-      if (res.status === 409) { // likely a write-conflict (someone else saved)
-        const txt = await res.text();
-        if (/conflict/.test(txt)) {
-          const reload = window.confirm("This file changed in Dropbox since you loaded it.\n\nOK = reload the remote version (discard your local edits)\nCancel = keep your version (Save again to overwrite remote).");
-          if (reload) { await loadFromCloud(); }
-          else { cloudRev = null; setCloudStatus("Kept local copy — Save again to overwrite remote.", "err"); }
-          return;
-        }
-        throw new Error(txt);
+
+  // Save the whole board to the bin. Used by autosave (debounced) and "Save now".
+  let savePromise = null, saveAgain = false;
+  async function saveToCloud() {
+    if (!cloudConnected() || !cloud.binId) return;
+    if (savePromise) { saveAgain = true; return savePromise; } // coalesce overlapping saves
+    setSync("syncing");
+    const payload = wrap();
+    savePromise = (async () => {
+      try {
+        const res = await fetch(`${JB}/b/${cloud.binId}`, { method: "PUT", headers: jbHeaders(), body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(await jbErr(res));
+        loadedAt = payload.updatedAt;
+        clearDirty();
+        setSync("ok"); setCloudStatus("Saved to bin " + cloud.binId, "ok");
+      } catch (err) {
+        setSync("err"); setCloudStatus("Save failed: " + err.message, "err");
+        toast("Cloud save failed: " + err.message);
       }
-      if (!res.ok) throw new Error(await dbxErr(res));
-      const meta = await res.json();
-      cloudRev = meta.rev || null;
-      clearDirty();
-      setCloudStatus("Saved " + path + (cloudRev ? " (rev " + cloudRev.slice(0, 6) + ")" : ""), "ok");
-      toast("Saved to Dropbox ✓");
+    })();
+    await savePromise;
+    savePromise = null;
+    if (saveAgain) { saveAgain = false; return saveToCloud(); } // flush edits made mid-save
+  }
+
+  // Debounced autosave, triggered from markDirty() on every edit.
+  let autosaveTimer = null;
+  function scheduleCloudSave() {
+    if (!cloudConnected() || !cloud.binId || suppressAutosave || !cloudReady) return;
+    setSync("pending");
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(saveToCloud, 700);
+  }
+
+  async function createBin() {
+    if (!cloudConnected()) { toast("Add your JSONBin key first"); return; }
+    setCloudStatus("Creating new bin…", "");
+    try {
+      const res = await fetch(`${JB}/b`, {
+        method: "POST",
+        headers: Object.assign(jbHeaders(), { "X-Bin-Name": "gantt-board", "X-Bin-Private": "true" }),
+        body: JSON.stringify(wrap())
+      });
+      if (!res.ok) throw new Error(await jbErr(res));
+      const body = await res.json();
+      const id = body.metadata && body.metadata.id;
+      if (!id) throw new Error("no bin id returned");
+      cloud.binId = id; persistCloud();
+      $("c-binid").value = id;
+      loadedAt = Date.now();
+      cloudReady = true;
+      setCloudStatus("Created bin " + id, "ok");
+      toast("New bin created ✓");
     } catch (err) {
-      setCloudStatus("Save failed: " + err.message, "err");
-      toast("Cloud save failed: " + err.message);
+      setCloudStatus("Create failed: " + err.message, "err");
+      toast("Create bin failed: " + err.message);
     }
   }
 
   // --- cloud UI ---
   function setCloudStatus(msg, kind) { const el = $("c-status"); el.textContent = msg; el.className = "c-status" + (kind ? (" " + kind) : ""); }
+  const cloudDot = document.querySelector("#cloud-btn .cloud-dot");
+  function setSync(s) {
+    // dot color: grey idle, amber pending/syncing, green ok, red error
+    const c = { idle: "#cbd2dd", pending: "#f59e0b", syncing: "#f59e0b", ok: "#10b981", err: "#ef4444" }[s] || "#cbd2dd";
+    if (cloudDot) cloudDot.style.background = c;
+    $("cloud-btn").title = "Cloud: " + s;
+  }
   function updateCloudUI() {
     const conn = cloudConnected();
     document.body.classList.toggle("cloud-on", conn);
-    $("c-connect-row").style.display = conn ? "none" : "";
-    $("c-disconnect").style.display = conn ? "" : "none";
-    if (conn) setCloudStatus("Connected" + (cloud.path ? " · " + cloud.path : " · set a file path below"), "ok");
-    else setCloudStatus("Not connected.", "");
+    if (conn) { setCloudStatus("Key set · bin " + (cloud.binId || "(none)"), "ok"); setSync("ok"); }
+    else { setCloudStatus("No key yet — paste a JSONBin access key to sync.", ""); setSync("idle"); }
   }
-  function openCloud() { $("c-appkey").value = cloud.appKey || ""; $("c-path").value = cloud.path || ""; updateCloudUI(); $("cloud-overlay").classList.add("show"); }
+  function openCloud() { $("c-key").value = cloud.apiKey || ""; $("c-binid").value = cloud.binId || ""; updateCloudUI(); $("cloud-overlay").classList.add("show"); }
   function closeCloud() { $("cloud-overlay").classList.remove("show"); }
 
   $("cloud-btn").addEventListener("click", openCloud);
   $("c-close").addEventListener("click", closeCloud);
   $("cloud-overlay").addEventListener("click", (e) => { if (e.target === $("cloud-overlay")) closeCloud(); });
-  $("c-connect").addEventListener("click", startConnect);
-  $("c-finish").addEventListener("click", finishConnect);
-  $("c-load").addEventListener("click", () => { cloud.path = $("c-path").value.trim(); persistCloud(); cloudRev = null; loadFromCloud(); });
-  $("c-save").addEventListener("click", () => { cloud.path = $("c-path").value.trim(); persistCloud(); saveToCloud(); });
-  $("c-disconnect").addEventListener("click", () => {
-    cloud.refreshToken = ""; cloud.accessToken = ""; cloud.accessExpiry = 0; persistCloud();
-    cloudRev = null; updateCloudUI(); toast("Disconnected from Dropbox");
-  });
-  $("c-path").addEventListener("change", () => { cloud.path = $("c-path").value.trim(); persistCloud(); updateCloudUI(); });
+  $("c-key").addEventListener("change", () => { cloud.apiKey = $("c-key").value.trim(); persistCloud(); updateCloudUI(); });
+  $("c-binid").addEventListener("change", () => { cloud.binId = $("c-binid").value.trim(); persistCloud(); updateCloudUI(); });
+  $("c-load").addEventListener("click", () => { cloud.apiKey = $("c-key").value.trim(); cloud.binId = $("c-binid").value.trim(); persistCloud(); loadFromCloud(); });
+  $("c-savenow").addEventListener("click", () => { cloud.apiKey = $("c-key").value.trim(); cloud.binId = $("c-binid").value.trim(); persistCloud(); saveToCloud(); });
+  $("c-create").addEventListener("click", () => { cloud.apiKey = $("c-key").value.trim(); persistCloud(); createBin(); });
+  $("c-clear").addEventListener("click", () => { cloud.apiKey = ""; persistCloud(); $("c-key").value = ""; updateCloudUI(); toast("Key cleared"); });
 
   // ---------------------------------------------------------------------------
   // Data load / normalize
@@ -1554,8 +1511,8 @@
       const x = dateToX(today());
       chartPane.scrollLeft = Math.max(0, x - chartPane.clientWidth/2);
     });
-    // cloud-only: if configured, pull the latest from Dropbox on open
-    if (cloudConnected() && cloud.path) loadFromCloud();
+    // cloud-only: if configured, pull the latest from the cloud on open
+    if (cloudConnected() && cloud.binId) loadFromCloud();
   }
   init();
 })();

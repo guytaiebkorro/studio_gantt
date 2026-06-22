@@ -19,57 +19,47 @@ Double-click `gantt.html` (or drag it into a browser tab).
 - **Click** a bar or a row in the left list to edit it; **double-click** a bar also opens the editor.
 - **Dependencies** draw arrows from a predecessor's end to a dependent task's start.
 
-## Cloud sync with Dropbox (recommended for teams)
+## Cloud sync with JSONBin (autosave, no logins)
 
-Instead of passing the file around, the app can read and write your board as a JSON file
-directly in **Dropbox**. Everyone opens the same `gantt.html`, connects it to Dropbox once,
-and works against one shared file. Click **☁ Cloud** in the toolbar to set this up.
+The app reads and writes your board as JSON in a **JSONBin.io** bin. Everyone opens the same
+`index.html`, pastes one **access key**, and **every change auto-saves to the cloud** — no Save
+button, no per-user login, no user limits. Click **☁ Cloud** in the toolbar to set it up.
 
-### One-time Dropbox app setup (done by one person)
-1. Go to **https://www.dropbox.com/developers/apps** → **Create app**.
-2. Choose **Scoped access**, then:
-   - **App folder** — simplest; the app only sees its own folder. Good if one Dropbox account
-     holds the board.
-   - **Full Dropbox** — needed if the board lives in a **shared folder** that teammates access
-     from their own Dropbox accounts.
-3. Name the app and create it.
-4. Open the **Permissions** tab and enable: `files.content.read` and `files.content.write`
-   (optionally `files.metadata.read`). Click **Submit**.
-5. Open the **Settings** tab and copy the **App key**. (No redirect URI needed — the app uses a
-   copy/paste authorization code.)
+### One-time setup
+1. Create a free account at **https://jsonbin.io**.
+2. Go to **API Keys** and create an **Access Key** with **Read**, **Update**, and **Create**
+   permissions (Create lets the "Create new bin" button work). Copy the key.
+3. In the app: click **☁ Cloud**, paste the key into **JSONBin access key**.
+4. The **Bin ID** field is pre-filled with the shared board
+   (`6a38fcb4da38895dfeea6372`). Click **Load now** to pull it, or **Create new bin** to start a
+   fresh board (its id fills in automatically).
 
-### Connect the app
-1. Click **☁ Cloud** → paste the **App key**.
-2. Set a **file path**, e.g. `/board.json` (for an *App folder* app the path is relative to the
-   app folder; for *Full Dropbox* use the real path, e.g. `/Team/Projects/board.json`).
-3. Click **Connect Dropbox…**, authorize in the new tab, copy the code Dropbox shows, paste it
-   back, and click **Finish**.
-4. From then on it auto-loads on open and **Save / ⌘S writes to Dropbox**. A green dot on the
-   ☁ Cloud button means you're connected. The app refreshes access automatically (no re-login).
+That's it. The **☁ Cloud** dot turns green, the board auto-loads on open, and every edit saves
+to the bin within ~1 second. The dot shows status: grey = idle, amber = saving, green = saved,
+red = error.
 
 ### Switching boards
-Change the **file path** field and click **Load** to open a different board; **Save** writes to
-whatever path is currently set. That's the easy way to keep several boards in one app.
+The **Bin ID** is the board's "address." Change it and click **Load now** to open a different
+board; from then on edits autosave to that bin. **Create new bin** spins up a new one.
 
 ### Notes
-- **Concurrency:** the app tracks the Dropbox file revision. If a teammate saved since you
-  loaded, you'll be asked to *reload the remote version* or *keep yours and overwrite* — no
-  silent clobbering.
-- **Team sharing:** for everyone to edit one board, either share one Dropbox account, or use a
-  **Full Dropbox** app pointed at a file inside a **shared folder** (each teammate connects their
-  own account). App-folder apps can't reach shared folders outside the app folder.
-- **Access:** your connection (refresh token) is stored in *your* browser's local storage, not in
-  the file. Each person connects once on their machine.
-- **Opening:** Dropbox sync works whether you double-click the file (`file://`) or serve it on
-  localhost. If a browser blocks the Dropbox request from `file://` (a CORS error on Connect),
-  open it via `serve.command` (localhost) instead.
+- **Autosave:** there's no Save button in cloud mode — changes are debounced and pushed
+  automatically. (⌘S still forces an immediate push.)
+- **Concurrency:** saves are last-write-wins. If two people edit the *same* bin at the same time,
+  the later save wins. Use separate bins for separate boards to avoid stepping on each other.
+- **Where the key lives:** your access key is stored in *your* browser's local storage, not in the
+  file. Each person pastes it once. (If you want teammates to have zero setup, an access key can be
+  embedded in the file as a default — convenient, but then anyone with the file can edit the board.
+  Ask if you want that.)
+- **CORS:** JSONBin allows browser requests. If a request is blocked when you open the file via
+  `file://`, open it through `serve.command` (localhost) instead.
 
 ---
 
-## Saving to the file (fallback when not using cloud)
+## Saving to the file (fallback when cloud isn't set up)
 
-If you're **not** connected to Dropbox, the app falls back to writing your tasks back into the
-`.html` file. **In-place file saving needs two things: Chrome/Edge, *and* the page opened over
+If no access key is set, the app falls back to writing your tasks back into the `index.html`
+file. **In-place file saving needs two things: Chrome/Edge, *and* the page opened over
 `http://localhost` — not `file://`.**
 
 ### Why double-clicking the file can't save in place
