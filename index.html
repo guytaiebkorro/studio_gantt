@@ -194,6 +194,17 @@
   .bar .handle.l { left: 0; }
   .bar .handle.r { right: 0; }
   .bar.selected { outline: 2px solid #1f2733; outline-offset: 1px; }
+  /* rollup bar shown on a collapsed group's header row */
+  .bar.group-summary {
+    height: 10px; border-radius: 3px; opacity: .85; cursor: default; box-shadow: none;
+  }
+  .bar.group-summary::before,
+  .bar.group-summary::after {
+    content: ""; position: absolute; top: -3px; width: 3px; height: 16px;
+    background: inherit; border-radius: 1px;
+  }
+  .bar.group-summary::before { left: 0; }
+  .bar.group-summary::after  { right: 0; }
 
   .milestone {
     position: absolute; width: 18px; height: 18px; transform: rotate(45deg);
@@ -451,7 +462,8 @@
   let state = loadState();
   let fileHandle = null;          // FileSystemFileHandle (Chrome/Edge)
   let dirty = false;
-  let selectedId = null;
+  let selectedId = null;          // primary selection (editor / copy / delete target)
+  let selectedIds = new Set();    // multi-selection: tasks tagged to move together
   let editingId = null;           // task id open in editor (null = new)
   let editingGroupId = null;
   let rangeStart = null, rangeEnd = null;  // Date objects defining the visible timeline (grows on scroll)
@@ -639,14 +651,18 @@
         el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("drop-into"); moveTaskToGroupTop(r.group.id); });
       } else {
         const t = r.task;
-        el.className = "list-row task-row" + (t.id === selectedId ? " sel" : "");
+        el.className = "list-row task-row" + (isSelected(t.id) ? " sel" : "");
+        el.dataset.id = t.id;
         const range = t.isMilestone ? fmtShort(parseD(t.start))
                                     : `${fmtShort(parseD(t.start))}–${fmtShort(parseD(t.end))}`;
         const mark = t.isMilestone ? "◆ " : "";
         el.innerHTML = `<span class="swatch" style="background:${t.color || r.group.color}"></span>
                         <span class="nm">${mark}${esc(t.name)}</span>
                         <span class="meta">${t.isMilestone ? "" : t.progress + "% · "}${range}</span>`;
-        el.addEventListener("click", () => openEditor(t.id));
+        el.addEventListener("click", (e) => {
+          if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelection(t.id); return; }
+          openEditor(t.id);
+        });
         // drag to reorder (disabled while view-only)
         el.draggable = !locked;
         el.addEventListener("dragstart", (e) => {
@@ -771,13 +787,39 @@
     chartBody.querySelectorAll(".bar, .milestone, .ms-label").forEach(e => e.remove());
     const dw = dayWidth();
     rows.forEach((r, idx) => {
+      if (r.type === "group") {
+        // When a group is collapsed its task rows are hidden, so draw a single
+        // rollup bar on the group header row spanning its tasks' date range.
+        if (!isCollapsed(r.group.id)) return;
+        const members = state.tasks.filter(t => t.groupId === r.group.id
+          || (r.group.id === "__none" && !state.groups.some(g => g.id === t.groupId)));
+        if (!members.length) return;
+        let min = null, max = null;
+        for (const t of members) {
+          const s = parseD(t.start);
+          const e = t.isMilestone ? s : parseD(t.end);
+          if (!min || s < min) min = s;
+          if (!max || e > max) max = e;
+        }
+        const top = idx*ROW_H;
+        const x = dateToX(min);
+        const days = Math.max(1, diffDays(min, max) + 1);
+        const sum = document.createElement("div");
+        sum.className = "bar group-summary";
+        sum.style.left = x + "px";
+        sum.style.top = (top + (ROW_H - 10) / 2) + "px";
+        sum.style.width = (days * dw) + "px";
+        sum.style.background = r.group.color;
+        chartBody.appendChild(sum);
+        return;
+      }
       if (r.type !== "task") return;
       const t = r.task;
       const top = idx*ROW_H;
       if (t.isMilestone) {
         const x = dateToX(parseD(t.start));
         const m = document.createElement("div");
-        m.className = "milestone" + (t.id === selectedId ? " selected" : "");
+        m.className = "milestone" + (isSelected(t.id) ? " selected" : "");
         m.style.left = (x - 9) + "px";
         m.style.top = (top + (ROW_H-18)/2) + "px";
         m.style.background = t.color || r.group.color;
@@ -795,7 +837,7 @@
         const days = Math.max(1, diffDays(parseD(t.start), parseD(t.end)) + 1);
         const bw = days * dw;
         const bar = document.createElement("div");
-        bar.className = "bar" + (t.id === selectedId ? " selected" : "");
+        bar.className = "bar" + (isSelected(t.id) ? " selected" : "");
         bar.style.left = x + "px";
         bar.style.top = (top + BAR_PAD) + "px";
         bar.style.width = bw + "px";
@@ -869,70 +911,62 @@
     rh.addEventListener("pointerdown", (e) => startResize(e, t, "r"));
     bar.addEventListener("pointerdown", (e) => {
       if (e.target.classList.contains("handle")) return;
-      startMove(e, t, bar);
+      startDrag(e, t, bar, false);
     });
     bar.addEventListener("dblclick", () => openEditor(t.id));
   }
 
   function attachMilestoneDrag(m, t) {
-    m.addEventListener("pointerdown", (e) => startMoveMilestone(e, t, m));
+    m.addEventListener("pointerdown", (e) => startDrag(e, t, m, true));
     m.addEventListener("dblclick", () => openEditor(t.id));
   }
 
-  function startMove(e, t, bar) {
-    if (locked) { select(t.id); return; }
+  // Unified bar/milestone drag. Ctrl/Cmd/Shift-click tags a task into the
+  // multi-selection instead of dragging; a plain drag on any tagged task moves
+  // the whole selection together by the same number of days.
+  function startDrag(e, t, anchorEl, isMs) {
+    const modifier = e.shiftKey || e.metaKey || e.ctrlKey;
+    if (locked) { modifier ? toggleSelection(t.id) : select(t.id); return; }
+    if (modifier) { e.preventDefault(); toggleSelection(t.id); return; }
+    // Plain click on an untagged bar selects only it; on an already-tagged bar
+    // it keeps the group so the drag moves everything.
+    if (!isSelected(t.id)) select(t.id);
     e.preventDefault();
-    select(t.id);
     dragging = true;
     const dw = dayWidth();
     const startX = e.clientX;
-    const origStart = parseD(t.start), origEnd = parseD(t.end);
-    let moved = false;
-    bar.setPointerCapture(e.pointerId);
+    // Snapshot every selected task that is currently on screen.
+    const items = [...selectedIds].map(id => {
+      const task = state.tasks.find(x => x.id === id);
+      const el = chartBody.querySelector(`.bar[data-id="${id}"], .milestone[data-id="${id}"]`);
+      if (!task || !el) return null;
+      return { task, el, ms: el.classList.contains("milestone"),
+               origStart: parseD(task.start), origEnd: parseD(task.end) };
+    }).filter(Boolean);
+    anchorEl.setPointerCapture(e.pointerId);
     function move(ev) {
       const delta = Math.round((ev.clientX - startX) / dw);
-      if (delta !== 0) moved = true;
-      bar.style.left = (dateToX(addDays(origStart, delta))) + "px";
+      for (const it of items) {
+        const nx = dateToX(addDays(it.origStart, delta));
+        it.el.style.left = (it.ms ? nx - 9 : nx) + "px";
+      }
     }
     function up(ev) {
       dragging = false;
-      bar.releasePointerCapture(e.pointerId);
-      bar.removeEventListener("pointermove", move);
-      bar.removeEventListener("pointerup", up);
+      anchorEl.releasePointerCapture(e.pointerId);
+      anchorEl.removeEventListener("pointermove", move);
+      anchorEl.removeEventListener("pointerup", up);
       const delta = Math.round((ev.clientX - startX) / dw);
       if (delta !== 0) {
-        t.start = fmtD(addDays(origStart, delta));
-        t.end = fmtD(addDays(origEnd, delta));
+        for (const it of items) {
+          it.task.start = fmtD(addDays(it.origStart, delta));
+          it.task.end = it.ms ? it.task.start : fmtD(addDays(it.origEnd, delta));
+        }
         markDirty(); render();
       }
     }
-    bar.addEventListener("pointermove", move);
-    bar.addEventListener("pointerup", up);
-  }
-
-  function startMoveMilestone(e, t, m) {
-    if (locked) { select(t.id); return; }
-    e.preventDefault();
-    select(t.id);
-    dragging = true;
-    const dw = dayWidth();
-    const startX = e.clientX;
-    const orig = parseD(t.start);
-    m.setPointerCapture(e.pointerId);
-    function move(ev) {
-      const delta = Math.round((ev.clientX - startX) / dw);
-      m.style.left = (dateToX(addDays(orig, delta)) - 9) + "px";
-    }
-    function up(ev) {
-      dragging = false;
-      m.releasePointerCapture(e.pointerId);
-      m.removeEventListener("pointermove", move);
-      m.removeEventListener("pointerup", up);
-      const delta = Math.round((ev.clientX - startX) / dw);
-      if (delta !== 0) { t.start = fmtD(addDays(orig, delta)); t.end = t.start; markDirty(); render(); }
-    }
-    m.addEventListener("pointermove", move);
-    m.addEventListener("pointerup", up);
+    anchorEl.addEventListener("pointermove", move);
+    anchorEl.addEventListener("pointerup", up);
   }
 
   function startResize(e, t, side) {
@@ -976,10 +1010,34 @@
     target.addEventListener("pointerup", up);
   }
 
+  function isSelected(id) { return selectedIds.has(id); }
+
+  // Replace the whole selection with a single task.
   function select(id) {
     selectedId = id;
+    selectedIds = id == null ? new Set() : new Set([id]);
+    refreshSelection();
+  }
+
+  // Add/remove one task from the selection (used for tagging several together).
+  function toggleSelection(id) {
+    if (selectedIds.has(id)) {
+      selectedIds.delete(id);
+      if (selectedId === id) selectedId = [...selectedIds].pop() || null;
+    } else {
+      selectedIds.add(id);
+      selectedId = id;
+    }
+    refreshSelection();
+  }
+
+  // Sync the .selected / .sel classes in both chart and list to selectedIds.
+  function refreshSelection() {
     chartBody.querySelectorAll(".bar, .milestone").forEach(el => {
-      el.classList.toggle("selected", el.dataset.id === id);
+      el.classList.toggle("selected", selectedIds.has(el.dataset.id));
+    });
+    listInner.querySelectorAll(".list-row.task-row").forEach(el => {
+      el.classList.toggle("sel", selectedIds.has(el.dataset.id));
     });
   }
 
@@ -1141,6 +1199,7 @@
     state.tasks = state.tasks.filter(x => x.id !== id);
     // clean up dependencies referencing it
     state.tasks.forEach(t => { if (t.deps) t.deps = t.deps.filter(d => d !== id); });
+    selectedIds.delete(id);
     if (selectedId === id) selectedId = null;
     markDirty(); closeEditor(); render();
     toast("Task deleted", "Undo", () => restoreState(snap));
@@ -1157,6 +1216,7 @@
     const idx = state.tasks.findIndex(x => x.id === editingId);
     state.tasks.splice(idx + 1, 0, copy); // place right after the original
     selectedId = copy.id;
+    selectedIds = new Set([copy.id]);
     markDirty(); closeEditor(); render();
     toast("Task duplicated");
   });
@@ -1198,11 +1258,26 @@
     state.tasks = state.tasks.filter(t => !removed.has(t.id));
     // clean up dependencies in remaining tasks that pointed at the deleted ones
     state.tasks.forEach(t => { if (t.deps) t.deps = t.deps.filter(d => !removed.has(d)); });
+    removed.forEach(rid => selectedIds.delete(rid));
     if (removed.has(selectedId)) selectedId = null;
     state.groups = state.groups.filter(x => x.id !== gid);
     markDirty(); closeGroupEditor(); render();
     const n = childIds.length;
     toast(n ? `Group + ${n} task${n > 1 ? "s" : ""} deleted` : "Group deleted", "Undo", () => restoreState(snap));
+  });
+
+  // Escape clears the current multi-selection (when no editor is open).
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (edOverlay.classList.contains("show") || gOverlay.classList.contains("show")) return;
+    if (selectedIds.size) select(null);
+  });
+
+  // Click empty chart space to clear the selection.
+  chartBody.addEventListener("pointerdown", (e) => {
+    if (dragging) return;
+    if (e.target.closest(".bar, .milestone")) return;
+    if (selectedIds.size) select(null);
   });
 
   // ---------------------------------------------------------------------------
