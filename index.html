@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gantt</title>
 <!-- Tab icon (favicon): embedded PNG so it renders in every browser, incl. Safari. -->
-<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABWElEQVR4nO2bTU7DMBCF33zKCYAeAQ4GiGXXPQJrlhXlYO0R+LkCiEWlKCpNExTb8cu3iBTL4zfPHsX2IqEB3D68f2sGHHaruLRv1GJ67GRQs/lLPMSYoJqqARfzf3mjr0NtdD0ic3Ba/VNe6Ta4cPSMzEHmhGP5t0HmIHOQOcicZmzg/vVGqbl7/CijAvYZzE+lSwlJ5NRH5iBzkDnIHErYinLqU0ISOXVjuQ2ag8xB5iBzmqkG3m6ulZqn588yKmCbwfxYXUpIIqc+MgeZg8xB5lDCVpRTnxKSyKkby23QHGQOMgeZ0wwNWN9fTZOJpJe3LxVdAesJzacY/18TsE6UXOpJQOYgc5A5yBxK26JSb4WUlFyOc0D8PlxvhIfdKpZvgMxh6H92tXD0TLfBgbZXZA7tF4cq6Hqkr0NNnPIW5wJqOR+cW1TGBs6FPg8xZLC5VMSQhfsBXdN01D62vQsAAAAASUVORK5CYII=">
+<!-- Real icon files (relative paths so they resolve under GitHub Pages project
+     subpaths). Safari honors these; it tends to ignore data-URI favicons. -->
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<!-- last-resort fallback for opening the single file directly (file://) -->
+<link rel="alternate icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABWElEQVR4nO2bTU7DMBCF33zKCYAeAQ4GiGXXPQJrlhXlYO0R+LkCiEWlKCpNExTb8cu3iBTL4zfPHsX2IqEB3D68f2sGHHaruLRv1GJ67GRQs/lLPMSYoJqqARfzf3mjr0NtdD0ic3Ba/VNe6Ta4cPSMzEHmhGP5t0HmIHOQOcicZmzg/vVGqbl7/CijAvYZzE+lSwlJ5NRH5iBzkDnIHErYinLqU0ISOXVjuQ2ag8xB5iBzmqkG3m6ulZqn588yKmCbwfxYXUpIIqc+MgeZg8xB5lDCVpRTnxKSyKkby23QHGQOMgeZ0wwNWN9fTZOJpJe3LxVdAesJzacY/18TsE6UXOpJQOYgc5A5yBxK26JSb4WUlFyOc0D8PlxvhIfdKpZvgMxh6H92tXD0TLfBgbZXZA7tF4cq6Hqkr0NNnPIW5wJqOR+cW1TGBs6FPg8xZLC5VMSQhfsBXdN01D62vQsAAAAASUVORK5CYII=">
 
 <style>
   /* ============================================================
@@ -151,7 +157,9 @@
   #toolbar .title {
     font-weight: 700; font-size: 15px; margin-right: 6px;
     color: var(--accent); text-shadow: var(--text-glow); letter-spacing: .04em;
+    display: inline-flex; align-items: center; gap: 7px;
   }
+  #toolbar .title-logo { display: block; border-radius: 4px; }
   #toolbar .spacer { flex: 1; }
   .board-select {
     height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; color: var(--text); background: var(--input-bg);
@@ -429,7 +437,7 @@
 <body>
 <div id="app">
   <div id="toolbar">
-    <span class="title">📊 Gantt</span>
+    <span class="title"><img class="title-logo" src="favicon-32.png" alt="" width="20" height="20">Gantt</span>
     <select id="board-select" class="board-select" title="Switch board"></select>
     <button class="btn" id="board-new" title="Create a new board">＋ Board</button>
     <button class="btn" id="refresh-btn" title="Pull the latest from the cloud">🔄</button>
