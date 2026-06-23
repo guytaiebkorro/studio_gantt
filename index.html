@@ -275,6 +275,9 @@
     font-size: 11px; color: var(--muted); overflow: hidden;
   }
   .hdr-cell .big { font-weight: 600; color: var(--text); font-size: 12px; }
+  /* pronounce weekend days in the date bar */
+  .hdr-cell.weekend { background: var(--weekend); box-shadow: inset 0 -2px 0 var(--accent); }
+  .hdr-cell.weekend span, .hdr-cell.weekend .big { color: var(--accent); }
   #chart-body { position: relative; }
   .grid-col {
     position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--grid);
@@ -849,6 +852,7 @@
       for (let i = 0; i < n; i++) {
         const d = addDays(rangeStart, i);
         const cell = hdrCell(i*dw, dw);
+        if (d.getDay() === 5 || d.getDay() === 6) cell.classList.add("weekend"); // Fri–Sat (matches grid)
         cell.innerHTML = `<span>${DOW[d.getDay()]}</span><span class="big">${d.getDate()}</span>`;
         if (d.getDate() === 1) cell.innerHTML = `<span>${MONTHS[d.getMonth()]}</span><span class="big">${d.getDate()}</span>`;
         chartHeader.appendChild(cell);
