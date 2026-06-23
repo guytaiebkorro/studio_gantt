@@ -1,0 +1,118 @@
+/* ============================================================
+   THEME TOKENS
+   Default = "Cyberpunk neon" dark hacker theme.
+   [data-theme="light"] on <html> swaps to a clean light theme.
+   ============================================================ */
+:root {
+  /* geometry (theme-independent) */
+  --row-h: 38px;
+  --header-h: 52px;
+  --list-w: 300px;
+  --ctrl-h: 32px;   /* shared height for all toolbar buttons & fields */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* --- dark: slate grey-blue with cool blue/cyan accents (default) --- */
+  --font: var(--font-mono);
+  --bg: #0b1220;
+  --bg-glow-1: rgba(56,189,248,.05);
+  --bg-glow-2: rgba(34,211,238,.04);
+  --panel: #111a2b;
+  --panel-2: #1b263b48;
+  --border: #243349;
+  --border-strong: #33445e;
+  --text: #cdd9ec;
+  --muted: #6b7c99;
+  --accent: #38bdf8;            /* sky blue */
+  --accent-hover: #7dd3fc;
+  --accent-text: #06121f;       /* text on accent fills */
+  --accent-2: #22d3ee;          /* cyan (today-line / secondary) */
+  --grid: #18233a;
+  --grid-strong: #243349;
+  --weekend: #0e1626;
+  --today: rgba(34,211,238,.10);
+  --today-line: #22d3ee;
+
+  --btn-bg: #16223a;
+  --btn-hover: #1e2d49;
+  --input-bg: #0d1626;
+  --hover: #18233a;
+  --group-bg: #131e33;
+  --drop: #1b2a47;
+  --modal-bg: #111a2b;
+  --overlay: rgba(4,8,16,.72);
+  --toast-bg: #16223a;
+  --chip-bg: #16223a;
+  --dep: #54648a;
+
+  --danger: #fb7185;
+  --danger-border: #4a2330;
+  --danger-bg: #2a1018;
+  --ok: #34d399;
+  --ok-bg: #08251f;
+  --ok-text: #5eead4;
+  --err-bg: #2a1018;
+  --err-text: #fb7185;
+  --warn-bg: #221a05;
+  --warn-text: #ffcf66;
+  --warn-border: #5a4a14;
+
+  --shadow: 0 0 0 1px rgba(56,189,248,.04), 0 8px 24px rgba(0,0,0,.55);
+  --glow-accent: 0 0 10px rgba(56,189,248,.50);
+  --glow-accent-2: 0 0 10px rgba(34,211,238,.50);
+  --bar-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 0 14px rgba(0,0,0,.5);
+  --text-glow: 0 0 8px rgba(56,189,248,.40);
+}
+
+:root[data-theme="light"] {
+  /* font intentionally NOT overridden — both themes share --font-mono so the
+     toolbar/layout stays identical when toggling. */
+  --bg: #f4f6f9;
+  --bg-glow-1: transparent;
+  --bg-glow-2: transparent;
+  --panel: #ffffff;
+  --panel-2: #fbfcfe;
+  --border: #d9dee6;
+  --border-strong: #b9c2cf;
+  --text: #1f2733;
+  --muted: #6b7689;
+  --accent: #3b82f6;
+  --accent-hover: #2f74e0;
+  --accent-text: #ffffff;
+  --accent-2: #f59e0b;
+  --grid: #eef1f5;
+  --grid-strong: #e1e6ee;
+  --weekend: #f7f9fc;
+  --today: #fff5e6;
+  --today-line: #f59e0b;
+
+  --btn-bg: #ffffff;
+  --btn-hover: #f1f4f9;
+  --input-bg: #ffffff;
+  --hover: #f5f8fd;
+  --group-bg: #fbfcfe;
+  --drop: #e8f0fe;
+  --modal-bg: #ffffff;
+  --overlay: rgba(16,24,40,.35);
+  --toast-bg: #1f2733;
+  --chip-bg: #f1f4f9;
+  --dep: #94a3b8;
+
+  --danger: #e11d48;
+  --danger-border: #f3b5c2;
+  --danger-bg: #fff1f4;
+  --ok: #10b981;
+  --ok-bg: #e7f7f0;
+  --ok-text: #0a7a52;
+  --err-bg: #fdecef;
+  --err-text: #b4243a;
+  --warn-bg: #fff8e1;
+  --warn-text: #7a5b00;
+  --warn-border: #f0e0a8;
+
+  --shadow: 0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.06);
+  --glow-accent: none;
+  --glow-accent-2: none;
+  --bar-shadow: 0 1px 3px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.06);
+  --text-glow: none;
+}

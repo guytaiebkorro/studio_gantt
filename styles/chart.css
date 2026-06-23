@@ -1,0 +1,82 @@
+/* ============================================================
+   RIGHT CHART PANE: header/date axis, grid, bars, milestones,
+   dependency arrows, today line
+   ============================================================ */
+#chart-pane { flex: 1; overflow: auto; position: relative; background: var(--panel); }
+#chart-inner { position: relative; }
+#chart-header {
+  position: sticky; top: 0; z-index: 20; height: var(--header-h);
+  background: var(--panel); border-bottom: 1px solid var(--border-strong);
+}
+.hdr-cell {
+  position: absolute; top: 0; height: var(--header-h);
+  border-left: 1px solid var(--grid-strong); box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  font-size: 11px; color: var(--muted); overflow: hidden;
+}
+.hdr-cell .big { font-weight: 600; color: var(--text); font-size: 12px; }
+/* pronounce weekend days in the date bar */
+.hdr-cell.weekend { background: var(--weekend); box-shadow: inset 0 -2px 0 var(--accent); }
+.hdr-cell.weekend span, .hdr-cell.weekend .big { color: var(--accent); }
+#chart-body { position: relative; }
+.grid-col {
+  position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--grid);
+}
+.grid-col.weekend { background: var(--weekend); }
+.grid-col.month-start { border-left: 1px solid var(--grid-strong); }
+.row-line {
+  position: absolute; left: 0; right: 0; height: var(--row-h);
+  border-bottom: 1px solid var(--grid);
+}
+.row-line.group { background: var(--group-bg); }
+#today-line {
+  position: absolute; top: 0; bottom: 0; width: 2px; background: var(--today-line);
+  box-shadow: var(--glow-accent-2); z-index: 6; pointer-events: none;
+}
+
+/* bars */
+.bar {
+  position: absolute; height: 22px; border-radius: 6px; cursor: grab;
+  box-shadow: var(--bar-shadow); overflow: hidden; user-select: none;
+  display: flex; align-items: center; z-index: 8;
+}
+.bar:hover { filter: brightness(1.12) saturate(1.1); }
+.bar:active { cursor: grabbing; }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,.35); }
+.bar .label {
+  position: relative; padding: 0 8px; font-size: 11.5px; color: #fff; white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0,0,0,.25); pointer-events: none; overflow: hidden; text-overflow: ellipsis;
+}
+.bar .handle {
+  position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2;
+}
+.bar .handle.l { left: 0; }
+.bar .handle.r { right: 0; }
+.bar.selected { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: var(--glow-accent), var(--bar-shadow); }
+/* rollup bar shown on a collapsed group's header row */
+.bar.group-summary {
+  height: 10px; border-radius: 3px; opacity: .85; cursor: default; box-shadow: none;
+}
+.bar.group-summary::before,
+.bar.group-summary::after {
+  content: ""; position: absolute; top: -3px; width: 3px; height: 16px;
+  background: inherit; border-radius: 1px;
+}
+.bar.group-summary::before { left: 0; }
+.bar.group-summary::after  { right: 0; }
+
+.milestone {
+  position: absolute; width: 18px; height: 18px; transform: rotate(45deg);
+  border-radius: 3px; cursor: grab; z-index: 9; box-shadow: var(--shadow);
+  border: 2px solid rgba(255,255,255,.8);
+}
+.milestone.selected { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--glow-accent); }
+.ms-label {
+  position: absolute; font-size: 11px; color: var(--text); white-space: nowrap;
+  pointer-events: none; z-index: 9;
+}
+
+/* dependency arrows */
+#dep-svg { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 7; overflow: visible; }
+#dep-svg > path { stroke: var(--dep); stroke-width: 1.6; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+#dep-svg marker path { fill: var(--dep); stroke: none; }
