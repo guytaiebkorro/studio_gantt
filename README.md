@@ -1,8 +1,12 @@
 # Gantt — a hosted, cloud-synced Gantt board for teams
 
-A complete Gantt chart in **one self-contained HTML file** (no framework, no build step, no
-external libraries). It's hosted on **GitHub Pages**, so the whole team just opens a URL — the
-board lives in the cloud (JSONBin) and **every change auto-saves**. Open it, edit, done.
+A complete Gantt chart built with **plain HTML, CSS, and native ES modules** — no framework, no
+build step, no external libraries, no tooling to install. It's hosted on **GitHub Pages**, so the
+whole team just opens a URL — the board lives in the cloud (JSONBin) and **every change
+auto-saves**. Open it, edit, done.
+
+The code is split into small files with clear responsibilities (see **Project structure** below);
+deploying is still just `git push` because the browser loads the modules directly.
 
 > **Live app:** `https://<user>.github.io/<repo>/`
 > (replace with your Pages URL)
@@ -83,19 +87,56 @@ This is a lightweight, no-backend tool. The trade-offs that come with that:
 
 ---
 
-## Configuration (in `index.html`)
+## Project structure
 
-A few constants near the top of the script control behavior:
+```
+index.html              markup only — links the CSS and loads src/main.js
+styles/                 CSS, split by area (tokens, base, toolbar, list, chart, modals)
+src/
+  main.js               bootstrap / wiring
+  config.js             app constants (geometry, colors, save & poll timing)
+  state.js              the shared store + load/normalize
+  dates.js              date math + chart geometry
+  merge.js              the 3-way merge (pure, backend-agnostic)
+  theme.js              dark / light toggle
+  sync.js               autosave, polling, refresh, merge-on-save
+  boards.js             board registry, switcher, CRUD, cloud panel
+  persistence.js        local "save to file" fallback + JSON import/export
+  backend/
+    backend.js          ← the storage backend swap point
+    jsonbin.js          the JSONBin adapter (the only file that knows JSONBin)
+  render/               render orchestration + list + chart drawing
+  ui/                   interactions, editor, group editor, toolbar
+```
+
+## Swapping the backend
+
+The app talks to storage only through a small **`StorageBackend`** interface
+(`loadBoard` / `saveBoard` / `getRegistry` / `putRegistry` / `createBoardData` / `deleteBoardData`).
+JSONBin is just one implementation, living entirely in `src/backend/jsonbin.js`. To use a different
+backend (a REST API, Supabase, localStorage, …): write a new class with those methods, then change
+the one line in `src/backend/backend.js` that picks the active backend. Conflict resolution
+(the 3-way merge), autosave, and polling live above the backend in `src/sync.js`, so a new backend
+inherits them for free.
+
+## Configuration
+
+Behavior constants live in **`src/config.js`**:
 
 | Constant | Default | Meaning |
 |---|---|---|
-| `DEFAULT_KEY` | *(embedded)* | JSONBin key the app uses. Swap the master key for a scoped access key here. |
-| `DEFAULT_BIN_ID` | `6a38fcb4…` | The default board bin. |
-| `DEFAULT_REGISTRY_ID` | `6a390a19…` | The bin holding the list of boards. |
 | `POLL_ENABLED` | `false` | Set `true` for 5s live team polling (uses more API requests). |
 | `POLL_MS` | `5000` | Polling interval when enabled. |
 | `SAVE_IDLE_MS` | `2500` | Save this long after your last edit. |
 | `SAVE_MAX_MS` | `15000` | Force a save at least this often during continuous editing. |
+
+JSONBin-specific settings live in **`src/backend/jsonbin.js`**:
+
+| Constant | Default | Meaning |
+|---|---|---|
+| `DEFAULT_KEY` | *(embedded)* | JSONBin key the app uses. Swap the master key for a scoped access key here. |
+| `DEFAULT_BOARD_ID` | `6a38fcb4…` | The default board bin. |
+| `DEFAULT_REGISTRY_ID` | `6a390a19…` | The bin holding the list of boards. |
 
 ---
 
@@ -123,7 +164,8 @@ The registry bin stores `{ "boards": [ { "id": "<binId>", "name": "Main" } ] }`.
 ## Running locally (optional)
 
 You normally just use the GitHub Pages URL. To hack on it locally, serve the folder over
-`http://localhost` (some browser APIs dislike `file://`):
+`http://localhost` — this is **required**, because browsers block ES modules (and the File System
+API) on `file://` pages:
 
 ```
 python3 -m http.server 8753   # then open http://localhost:8753/index.html
@@ -133,5 +175,6 @@ python3 -m http.server 8753   # then open http://localhost:8753/index.html
 
 ## Deploying
 
-It's a single static file. Commit `index.html` to the repo and enable **GitHub Pages** (Settings →
-Pages → deploy from branch). Any push that changes `index.html` updates the live app.
+It's a set of static files. Commit `index.html` plus the `styles/` and `src/` folders to the repo
+and enable **GitHub Pages** (Settings → Pages → deploy from branch). Any push updates the live app —
+there's no build step; the browser loads the modules as-is.
