@@ -52,3 +52,9 @@ $("view-seg").addEventListener("click", (e) => {
   chartPane.scrollLeft = Math.max(0, dateToX(centerDate) + dayWidth() / 2 - chartPane.clientWidth / 2);
 });
 $("lock-btn").addEventListener("click", toggleLock);
+
+// --- text filter: show only rows whose task (or group) name matches ---
+$("filter-input").addEventListener("input", (e) => {
+  S.filter = e.target.value;
+  render(); // view-only state — no markDirty, nothing persisted
+});

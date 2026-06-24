@@ -22,6 +22,7 @@ export const S = {
   selectedIds: new Set(),      // multi-selection: tasks tagged to move together
   editingId: null,             // task id open in editor (null = new)
   editingGroupId: null,
+  filter: "",                  // toolbar text filter (runtime only, not persisted)
   rangeStart: null,            // Date objects defining the visible timeline (grows on scroll)
   rangeEnd: null,
   lastColor: null,             // remembers the last custom color picked, to reuse on new tasks
