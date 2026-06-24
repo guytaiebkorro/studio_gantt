@@ -55,6 +55,17 @@ body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
 /* While the Cloud popup is gated (no valid key yet), only the key + Connect are
    usable; hide board management and the auto-save note. */
 body.cloud-gated .cloud-board-controls { display: none; }
+
+/* Connected: the key can't be changed inline — hide the entry + hint and show
+   "Log out & change key" instead. Logged out: the reverse.
+   NOTE: layout lives here (not inline) so the cloud-on hide rule can win — an
+   inline `display` would override these stylesheet rules. */
+#c-key-entry { display: flex; gap: 8px; align-items: center; }
+#c-logout { display: none; }
+body.cloud-on #c-logout { display: inline-flex; }
+body.cloud-on #c-key-entry,
+body.cloud-on .c-key-label,
+body.cloud-on .c-key-hint { display: none; }
 .c-status {
   font-size: 12.5px; padding: 8px 10px; border-radius: 7px; background: var(--chip-bg); color: var(--muted);
 }
