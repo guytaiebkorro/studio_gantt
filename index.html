@@ -163,20 +163,31 @@
     <div class="body">
       <div id="c-status" class="c-status">Not connected.</div>
       <div>
+        <label>JSONBin Master Key</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="password" id="c-apikey" autocomplete="off" placeholder="Paste your JSONBin Master Key" style="flex:1;">
+          <button class="btn primary" id="c-connect">Connect</button>
+        </div>
+        <div style="color:var(--muted); font-size:11.5px; margin-top:4px;">
+          Your boards are discovered from this key and isolated per account — only people with the key can access them.
+          The key is stored only in this browser. A <b>Master Key</b> is required (Access Keys can’t discover boards).
+        </div>
+      </div>
+      <div class="cloud-board-controls">
         <label>Bin ID (the board's address)</label>
         <input type="text" id="c-binid" autocomplete="off" placeholder="e.g. 6a38fcb4da38895dfeea6372">
         <div style="color:var(--muted); font-size:11.5px; margin-top:4px;">
           Change this and click <b>Load</b> to switch boards. <b>Create new bin</b> makes a fresh one.
         </div>
       </div>
-      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <div class="cloud-board-controls" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button class="btn primary" id="c-load">Load now</button>
         <button class="btn" id="c-savenow">Save now</button>
         <button class="btn" id="c-create">New board</button>
         <button class="btn" id="c-rename">Rename board</button>
         <button class="btn danger" id="c-delete">Delete board</button>
       </div>
-      <div style="color:var(--muted); font-size:11.5px;">
+      <div class="cloud-board-controls" style="color:var(--muted); font-size:11.5px;">
         Changes auto-save to the cloud as you edit — no Save button needed.
       </div>
     </div>

@@ -17,10 +17,6 @@
 // @property {(name, data) => Promise<{id}>}                  createBoardData
 // @property {(boardId) => Promise<void>}                     deleteBoardData
 // ---------------------------------------------------------------------------
-import { JsonBinBackend, DEFAULT_KEY, DEFAULT_BOARD_ID } from "./jsonbin.js";
+import { JsonBinBackend } from "./jsonbin.js";
 
 export const backend = new JsonBinBackend();   // ← swap this for another adapter
-
-// Re-exported so the rest of the app can seed its defaults without importing
-// the JSONBin adapter directly (keeps jsonbin.js as the only backend-aware file).
-export { DEFAULT_KEY, DEFAULT_BOARD_ID };

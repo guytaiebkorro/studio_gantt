@@ -15,17 +15,17 @@
 
 const JB = "https://api.jsonbin.io/v3";
 
-// Embedded so the team needs zero setup. Swap the master key for a scoped
-// JSONBin access key (Read + Update + Create) to limit blast radius.
-export const DEFAULT_KEY = "$2a$10$.3MEUB1tMaYhFfPipJG4ROpKN3N1UFZU8uvkcQhSvTf.D5V0165om";
-export const DEFAULT_BOARD_ID = "6a38fcb4da38895dfeea6372";   // shared board's bin id (the "address")
-const DEFAULT_REGISTRY_ID = "6a390a19f5f4af5e291c2536";       // bin holding the list of boards [{id,name}]
+// No credentials are embedded. The user pastes a JSONBin **Master Key** in the
+// ☁ Cloud panel; it's injected into `apiKey` at runtime (see boards.js) and the
+// registry bin id is discovered from that account (see discoverRegistryId).
+// A Master Key is required because listing an account's bins — the basis of
+// discovery — is restricted to X-Master-Key by JSONBin (Access Keys can't list).
 
 export class JsonBinBackend {
   constructor() {
     this.base = JB;
-    this.registryId = DEFAULT_REGISTRY_ID;
-    this.apiKey = DEFAULT_KEY;   // set from S.cloud.apiKey at startup (see boards.js)
+    this.registryId = null;   // discovered/cached at connect time (see boards.js)
+    this.apiKey = null;       // set from S.cloud.apiKey at connect time
   }
 
   // --- internal helpers ---
@@ -69,6 +69,67 @@ export class JsonBinBackend {
   async putRegistry(boards) {
     const res = await fetch(`${this.base}/b/${this.registryId}`, { method: "PUT", headers: this.headers(), body: JSON.stringify({ boards }) });
     if (!res.ok) throw new Error(await this.errText(res));
+  }
+
+  // --- registry discovery (Master-Key only; Access Keys can't list bins) ---
+
+  // GET one page of uncategorized bin metadata. Pass the last seen bin id to
+  // page forward. Returns the raw array [{ record, private, createdAt, ... }]
+  // where `record` is the bin id. Throws on auth failure (surfaces "Master Key
+  // required" to the caller).
+  async listBins(lastBinId) {
+    const url = `${this.base}/c/uncategorized/bins` + (lastBinId ? `/${lastBinId}` : "");
+    const res = await fetch(url, { headers: this.headers() });
+    if (!res.ok) throw new Error(await this.errText(res));
+    const body = await res.json();
+    return Array.isArray(body) ? body : [];
+  }
+
+  // GET a bin's latest record WITHOUT unwrapping — the registry's `{ boards }`
+  // shape isn't a board document, so loadBoard()/unwrap() would discard it.
+  async getBinRaw(id) {
+    const res = await fetch(`${this.base}/b/${id}/latest`, { headers: this.headers() });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.record || null;
+  }
+
+  // Find this account's board registry by content shape: the bin whose record is
+  // `{ boards: [...] }`. Returns the bin id, or null if the account has none.
+  // Pages through bins with a safety cap so a huge account can't loop forever.
+  async discoverRegistryId() {
+    const PAGE = 10, CAP = 200;
+    let last = null, scanned = 0;
+    while (scanned < CAP) {
+      const page = await this.listBins(last);
+      if (!page.length) break;
+      for (const b of page) {
+        const id = b.record;
+        if (!id) continue;
+        scanned++;
+        const rec = await this.getBinRaw(id);
+        if (rec && Array.isArray(rec.boards)) return id;
+        if (scanned >= CAP) break;
+      }
+      if (page.length < PAGE) break;            // last page
+      last = page[page.length - 1].record;
+    }
+    if (scanned >= CAP) console.warn(`registry discovery stopped at the ${CAP}-bin cap`);
+    return null;
+  }
+
+  // Create a fresh registry bin holding `boards`; returns { id }.
+  async createRegistry(boards) {
+    const res = await fetch(`${this.base}/b`, {
+      method: "POST",
+      headers: Object.assign(this.headers(), { "X-Bin-Name": "gantt-registry", "X-Bin-Private": "true" }),
+      body: JSON.stringify({ boards })
+    });
+    if (!res.ok) throw new Error(await this.errText(res));
+    const body = await res.json();
+    const id = body.metadata && body.metadata.id;
+    if (!id) throw new Error("no bin id returned");
+    return { id };
   }
 
   // Create a fresh board bin holding `data`; returns { id }.

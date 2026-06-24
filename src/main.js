@@ -14,11 +14,8 @@ import { setupTheme } from "./theme.js";
 import { applyLockUI, updateViewButtons } from "./ui/toolbar.js";
 import { renderSwatches, closeEditor } from "./ui/editor.js";
 import { closeGroupEditor } from "./ui/groupEditor.js";
-import { loadFromCloud, startPolling, cloudConnected, flushSave } from "./sync.js";
-import {
-  initCloudConfig, loadRegistry, renderBoardSelect, persistCloud,
-  updateCloudUI, closeCloud
-} from "./boards.js";
+import { cloudConnected, flushSave } from "./sync.js";
+import { initCloudConfig, connect, openCloud, updateCloudUI, closeCloud } from "./boards.js";
 import { save } from "./persistence.js";
 import "./ui/interactions.js"; // ensure its top-level wiring runs
 
@@ -56,26 +53,20 @@ function init() {
   updateCloudUI();
   updateViewButtons();
   if (cloudConnected()) {
-    // cloud-only: keep the loading veil up and don't render the embedded sample —
-    // render only once the cloud responds, so there's no flash of default data.
-    initCloud().finally(() => { $("loading").classList.remove("show"); scrollToToday(); });
+    // a key is remembered — connect (discover + load) behind the loading veil.
+    // connect() lifts the gate on success; on failure it surfaces an error and
+    // we pop the gated panel so the user can re-enter a valid Master Key.
+    connect(S.cloud.apiKey)
+      .then(ok => { if (!ok) openCloud(); })
+      .finally(() => { $("loading").classList.remove("show"); scrollToToday(); });
   } else {
+    // no key yet — render an empty board behind a non-dismissable Cloud gate.
     $("loading").classList.remove("show");
     render();
+    updateCloudUI();
+    openCloud(); // S.cloudGate is true by default → popup can't be closed
     scrollToToday();
   }
-}
-
-async function initCloud() {
-  await loadRegistry(); // populates S.registry + the board dropdown
-  // Restore the last board (remembered in localStorage). If it's missing/deleted,
-  // fall back to the first board in the registry.
-  if (S.registry.length && !S.registry.some(b => b.id === S.cloud.binId)) {
-    S.cloud.binId = S.registry[0].id; persistCloud(); renderBoardSelect();
-  }
-  if (S.cloud.binId) await loadFromCloud();
-  else render();
-  startPolling(); // begin team-sync polling once the board is loaded (if enabled)
 }
 
 function scrollToToday() {
