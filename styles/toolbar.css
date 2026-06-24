@@ -17,6 +17,13 @@
   height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; color: var(--text); background: var(--input-bg);
   border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 8px; max-width: 200px;
 }
+.filter-input {
+  height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; color: var(--text); background: var(--input-bg);
+  border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 10px; width: 150px;
+  transition: box-shadow .15s, border-color .15s, width .15s;
+}
+.filter-input::placeholder { color: var(--muted); }
+.filter-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow-accent); width: 200px; }
 .btn {
   height: var(--ctrl-h); border: 1px solid var(--border-strong); background: var(--btn-bg); color: var(--text);
   padding: 0 11px; border-radius: 7px; cursor: pointer; font-size: 12.5px; font-family: inherit;

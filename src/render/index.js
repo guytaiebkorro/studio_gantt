@@ -33,19 +33,27 @@ export function render() {
 
 // Groups followed by their (visible) tasks; collapsed groups skip their tasks.
 // Tasks with no matching group fall under a synthetic "Ungrouped" group.
+//
+// The toolbar filter (S.filter) narrows the rows: a task is shown when its name
+// matches, or when its group's name matches (so you can isolate a whole team).
+// Groups with no visible task — and whose own name doesn't match — drop out.
 export function orderedRows() {
   const rows = [];
   const used = new Set();
+  const q = (S.filter || "").trim().toLowerCase();
+  const matches = (s) => (s || "").toLowerCase().includes(q);
+  const taskVisible = (t, g) => !q || matches(t.name) || (g && matches(g.name));
+
   for (const g of S.state.groups) {
-    const count = S.state.tasks.filter(t => t.groupId === g.id).length;
-    rows.push({ type: "group", group: g, count });
-    S.state.tasks.forEach(t => { if (t.groupId === g.id) used.add(t.id); });
+    const groupTasks = S.state.tasks.filter(t => t.groupId === g.id);
+    groupTasks.forEach(t => used.add(t.id)); // a task belongs to its group even when filtered out
+    const visible = groupTasks.filter(t => taskVisible(t, g));
+    if (q && visible.length === 0) continue; // filtering: hide groups with nothing to show
+    rows.push({ type: "group", group: g, count: visible.length });
     if (isCollapsed(g.id)) continue; // collapsed: skip its task rows (in both list and chart)
-    for (const t of S.state.tasks) {
-      if (t.groupId === g.id) rows.push({ type: "task", task: t, group: g });
-    }
+    for (const t of visible) rows.push({ type: "task", task: t, group: g });
   }
-  const orphans = S.state.tasks.filter(t => !used.has(t.id));
+  const orphans = S.state.tasks.filter(t => !used.has(t.id) && taskVisible(t, null));
   if (orphans.length) {
     const ng = { id: "__none", name: "Ungrouped", color: "#94a3b8" };
     rows.push({ type: "group", group: ng, count: orphans.length });
