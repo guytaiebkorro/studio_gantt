@@ -28,7 +28,7 @@ export function setSync(s) {
   // dot color: grey idle, amber pending/syncing, green ok, red error
   const c = { idle: "#cbd2dd", pending: "#f59e0b", syncing: "#f59e0b", ok: "#10b981", err: "#ef4444" }[s] || "#cbd2dd";
   if (cloudDot) cloudDot.style.background = c;
-  $("cloud-btn").title = "Cloud: " + s;
+  $("cloud-btn").title = "Account: " + s;
 }
 
 // Re-render after a programmatic state swap without losing the scroll position.

@@ -57,8 +57,8 @@ function init() {
     // connect() lifts the gate on success; on failure it surfaces an error and
     // we pop the gated panel so the user can re-enter a valid Master Key.
     connect(S.cloud.apiKey)
-      .then(ok => { if (!ok) openCloud(); })
-      .finally(() => { $("loading").classList.remove("show"); scrollToToday(); });
+      .then(ok => { if (!ok) openCloud(); }) // connect() scrolls to today on success
+      .finally(() => { $("loading").classList.remove("show"); });
   } else {
     // no key yet — render an empty board behind a non-dismissable Cloud gate.
     $("loading").classList.remove("show");

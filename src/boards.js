@@ -7,8 +7,9 @@
 // fetch calls, so it works unchanged against any backend.
 // ---------------------------------------------------------------------------
 import { CLOUD_KEY } from "./config.js";
-import { $, esc, toast } from "./dom.js";
-import { S } from "./state.js";
+import { $, esc, toast, chartPane } from "./dom.js";
+import { S, clearDirty } from "./state.js";
+import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
 import { loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus, cloudConnected, startPolling } from "./sync.js";
@@ -73,11 +74,12 @@ export async function connect(apiKey) {
     S.cloudReady = false;
     if (S.cloud.binId) await loadFromCloud(); else render();
 
-    // 3. Lift the gate.
+    // 3. Lift the gate and center the timeline on today.
     S.cloudGate = false;
     updateCloudUI();
     closeCloud();
     startPolling();
+    requestAnimationFrame(() => { chartPane.scrollLeft = Math.max(0, dateToX(today()) - chartPane.clientWidth / 2); });
     return true;
   } catch (err) {
     const auth = /master key|unauthorized|401|403/i.test(err.message || "");
@@ -184,12 +186,16 @@ export function updateCloudUI() {
   // only valid action is pasting a key and connecting.
   document.body.classList.toggle("cloud-gated", S.cloudGate);
   $("c-close").style.display = S.cloudGate ? "none" : "";
-  if (conn) { setCloudStatus("Connected ✓ · bin " + (S.cloud.binId || "(none)"), "ok"); setSync("ok"); }
+  if (conn) {
+    const n = S.registry.length;
+    const boards = n === 1 ? "1 board" : n + " boards";
+    setCloudStatus(`Connected ✓ — your key unlocked ${boards} on this account.`, "ok");
+    setSync("ok");
+  }
   else if (!S.cloudGate) { setSync("idle"); }
   else { setCloudStatus("Paste your JSONBin Master Key to connect.", ""); setSync("idle"); }
 }
 export function openCloud() {
-  $("c-binid").value = S.cloud.binId || "";
   if (!S.cloud.apiKey) $("c-apikey").value = "";
   updateCloudUI();
   $("cloud-overlay").classList.add("show");
@@ -197,14 +203,35 @@ export function openCloud() {
 // Refuse to close while gated (no valid key yet).
 export function closeCloud() { if (S.cloudGate) return; $("cloud-overlay").classList.remove("show"); }
 
+// Clear the stored key + cached workspace, stop background sync, drop the loaded
+// boards, and re-gate so a different key can be entered.
+export function logout() {
+  // stop autosave + polling
+  clearTimeout(S.autosaveTimer); S.autosaveTimer = null; S.firstDirtyAt = 0;
+  if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
+  // forget credentials + cached registry
+  S.cloud = { apiKey: "", binId: "", registryId: "" };
+  persistCloud();
+  backend.apiKey = null; backend.registryId = null;
+  // drop the previous account's data so nothing leaks behind the gate
+  S.registry = []; renderBoardSelect();
+  S.cloudReady = false; S.baseState = null; S.loadedAt = 0;
+  S.state = { version: 1, settings: { viewMode: (S.state.settings && S.state.settings.viewMode) || "week" }, groups: [], tasks: [] };
+  clearDirty(); render();
+  // re-gate and prompt for a new key
+  S.cloudGate = true;
+  $("c-apikey").value = "";
+  updateCloudUI();
+  openCloud();
+}
+
 // --- wiring ---
 $("cloud-btn").addEventListener("click", openCloud);
 $("c-close").addEventListener("click", closeCloud);
 $("cloud-overlay").addEventListener("click", (e) => { if (e.target === $("cloud-overlay") && !S.cloudGate) closeCloud(); });
 $("c-connect").addEventListener("click", () => { connect($("c-apikey").value); });
+$("c-logout").addEventListener("click", () => { logout(); });
 $("c-apikey").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); connect($("c-apikey").value); } });
-$("c-binid").addEventListener("change", () => { S.cloud.binId = $("c-binid").value.trim(); persistCloud(); updateCloudUI(); });
-$("c-load").addEventListener("click", () => { const id = $("c-binid").value.trim(); if (id === S.cloud.binId) loadFromCloud(); else switchBoard(id); });
 $("c-savenow").addEventListener("click", () => { saveToCloud(); });
 $("c-create").addEventListener("click", () => { newBoard(); });
 $("c-rename").addEventListener("click", () => { renameBoard(); });
