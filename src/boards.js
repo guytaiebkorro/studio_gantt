@@ -9,27 +9,86 @@
 import { CLOUD_KEY } from "./config.js";
 import { $, esc, toast } from "./dom.js";
 import { S } from "./state.js";
-import { backend, DEFAULT_KEY, DEFAULT_BOARD_ID } from "./backend/backend.js";
-import { loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus, cloudConnected } from "./sync.js";
+import { backend } from "./backend/backend.js";
+import { render } from "./render/index.js";
+import { loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus, cloudConnected, startPolling } from "./sync.js";
 
-// --- cloud config persistence ({ apiKey, binId }) ---
+// --- cloud config persistence ({ apiKey, binId, registryId }) ---
+// Nothing is embedded: a blank apiKey means "not connected yet" and the gated
+// Cloud popup will demand a Master Key. registryId is cached after discovery so
+// repeat visits skip the bin listing.
 export function loadCloud() {
-  const def = { apiKey: DEFAULT_KEY, binId: DEFAULT_BOARD_ID };
-  let merged = def;
-  try { merged = Object.assign({}, def, JSON.parse(localStorage.getItem(CLOUD_KEY) || "{}")); } catch (_) {}
-  if (!merged.apiKey) merged.apiKey = DEFAULT_KEY;  // fall back to embedded defaults even if a blank was stored
-  if (!merged.binId) merged.binId = DEFAULT_BOARD_ID;
-  return merged;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(CLOUD_KEY) || "{}"); } catch (_) {}
+  return { apiKey: saved.apiKey || "", binId: saved.binId || "", registryId: saved.registryId || "" };
 }
 export function persistCloud() { try { localStorage.setItem(CLOUD_KEY, JSON.stringify(S.cloud)); } catch (_) {} }
 
-// Initialize cloud config and hand the backend its credential. Called once from
+// Seed S.cloud + the backend's credentials from localStorage. Called once from
 // main.js bootstrap — NOT at module-eval time, because a circular import
 // (state → sync → boards) means this module's body runs before state.js has
 // initialized `S`, which would put `S` in the temporal dead zone.
 export function initCloudConfig() {
   S.cloud = loadCloud();
-  backend.apiKey = S.cloud.apiKey;
+  backend.apiKey = S.cloud.apiKey || null;
+  backend.registryId = S.cloud.registryId || null;
+}
+
+// Connect with a candidate Master Key: resolve the account's board registry
+// (cached → verify, else discover by listing, else create a fresh workspace),
+// load its boards, and lift the gate. Shared by startup and the ☁ panel.
+// Returns true on success. On failure the gate stays up and an error is shown.
+export async function connect(apiKey) {
+  apiKey = (apiKey || "").trim();
+  if (!apiKey) { setCloudStatus("Paste your JSONBin Master Key to connect.", ""); return false; }
+  S.cloud.apiKey = apiKey;
+  backend.apiKey = apiKey;
+  setSync("syncing"); setCloudStatus("Connecting…", "");
+  $("loading").classList.add("show");
+  try {
+    // 1. Resolve the registry id.
+    let regId = S.cloud.registryId || null;
+    if (regId) {
+      backend.registryId = regId;
+      try { await backend.getRegistry(); } catch (_) { regId = null; } // cached id stale/inaccessible
+    }
+    if (!regId) { setCloudStatus("Finding your boards…", ""); regId = await backend.discoverRegistryId(); }
+    if (!regId) {
+      // brand-new account → create an isolated workspace: registry + starter board
+      setCloudStatus("Setting up a new workspace…", "");
+      const { id: newReg } = await backend.createRegistry([]);
+      backend.registryId = newReg;
+      const empty = { version: 1, settings: { viewMode: S.state.settings.viewMode || "week" }, groups: [], tasks: [] };
+      const { id: boardId } = await backend.createBoardData("My Board", empty);
+      await backend.putRegistry([{ id: boardId, name: "My Board" }]);
+      regId = newReg; S.cloud.binId = boardId;
+    }
+    S.cloud.registryId = regId; backend.registryId = regId; persistCloud();
+
+    // 2. Load the registry + the remembered (or first) board.
+    await loadRegistry();
+    if (S.registry.length && !S.registry.some(b => b.id === S.cloud.binId)) {
+      S.cloud.binId = S.registry[0].id; persistCloud(); renderBoardSelect();
+    }
+    S.cloudReady = false;
+    if (S.cloud.binId) await loadFromCloud(); else render();
+
+    // 3. Lift the gate.
+    S.cloudGate = false;
+    updateCloudUI();
+    closeCloud();
+    startPolling();
+    return true;
+  } catch (err) {
+    const auth = /master key|unauthorized|401|403/i.test(err.message || "");
+    setSync("err");
+    setCloudStatus(auth
+      ? "Couldn’t connect — a JSONBin Master Key is required (Access Keys can’t discover boards)."
+      : "Connect failed: " + err.message, "err");
+    return false;
+  } finally {
+    $("loading").classList.remove("show");
+  }
 }
 
 // --- board registry ---
@@ -119,18 +178,31 @@ async function deleteBoard() {
 
 // --- cloud panel UI ---
 export function updateCloudUI() {
-  const conn = cloudConnected();
+  const conn = cloudConnected() && !S.cloudGate;
   document.body.classList.toggle("cloud-on", conn);
-  if (conn) { setCloudStatus("Key set · bin " + (S.cloud.binId || "(none)"), "ok"); setSync("ok"); }
-  else { setCloudStatus("No key yet — paste a JSONBin access key to sync.", ""); setSync("idle"); }
+  // While gated, hide the close button and the board-management controls — the
+  // only valid action is pasting a key and connecting.
+  document.body.classList.toggle("cloud-gated", S.cloudGate);
+  $("c-close").style.display = S.cloudGate ? "none" : "";
+  if (conn) { setCloudStatus("Connected ✓ · bin " + (S.cloud.binId || "(none)"), "ok"); setSync("ok"); }
+  else if (!S.cloudGate) { setSync("idle"); }
+  else { setCloudStatus("Paste your JSONBin Master Key to connect.", ""); setSync("idle"); }
 }
-export function openCloud() { $("c-binid").value = S.cloud.binId || ""; updateCloudUI(); $("cloud-overlay").classList.add("show"); }
-export function closeCloud() { $("cloud-overlay").classList.remove("show"); }
+export function openCloud() {
+  $("c-binid").value = S.cloud.binId || "";
+  if (!S.cloud.apiKey) $("c-apikey").value = "";
+  updateCloudUI();
+  $("cloud-overlay").classList.add("show");
+}
+// Refuse to close while gated (no valid key yet).
+export function closeCloud() { if (S.cloudGate) return; $("cloud-overlay").classList.remove("show"); }
 
 // --- wiring ---
 $("cloud-btn").addEventListener("click", openCloud);
 $("c-close").addEventListener("click", closeCloud);
-$("cloud-overlay").addEventListener("click", (e) => { if (e.target === $("cloud-overlay")) closeCloud(); });
+$("cloud-overlay").addEventListener("click", (e) => { if (e.target === $("cloud-overlay") && !S.cloudGate) closeCloud(); });
+$("c-connect").addEventListener("click", () => { connect($("c-apikey").value); });
+$("c-apikey").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); connect($("c-apikey").value); } });
 $("c-binid").addEventListener("change", () => { S.cloud.binId = $("c-binid").value.trim(); persistCloud(); updateCloudUI(); });
 $("c-load").addEventListener("click", () => { const id = $("c-binid").value.trim(); if (id === S.cloud.binId) loadFromCloud(); else switchBoard(id); });
 $("c-savenow").addEventListener("click", () => { saveToCloud(); });

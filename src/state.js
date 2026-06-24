@@ -35,7 +35,8 @@ export const S = {
   collapsedMap: (() => { try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}"); } catch (_) { return {}; } })(),
 
   // --- cloud runtime (configured by boards.js at startup) ---
-  cloud: null,                 // { apiKey, binId } — current credentials + board id
+  cloud: null,                 // { apiKey, binId, registryId } — credentials + board + discovered registry
+  cloudGate: true,             // true until a valid key connects; gates the non-dismissable Cloud popup
   registry: [],                // [{ id, name }] list of boards
   loadedAt: 0,                 // updatedAt of the remote version our state descends from
   baseState: null,             // common ancestor for 3-way merge

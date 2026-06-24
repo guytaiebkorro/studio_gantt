@@ -52,6 +52,9 @@ body.dirty .dirty-dot { display: inline-block; }
 }
 body.cloud-on .cloud-dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
+/* While the Cloud popup is gated (no valid key yet), only the key + Connect are
+   usable; hide board management and the auto-save note. */
+body.cloud-gated .cloud-board-controls { display: none; }
 .c-status {
   font-size: 12.5px; padding: 8px 10px; border-radius: 7px; background: var(--chip-bg); color: var(--muted);
 }
