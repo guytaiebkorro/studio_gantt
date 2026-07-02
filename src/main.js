@@ -11,7 +11,7 @@ import { S, supportsFS } from "./state.js";
 import { dateToX, today } from "./dates.js";
 import { render } from "./render/index.js";
 import { setupTheme } from "./theme.js";
-import { applyLockUI, updateViewButtons } from "./ui/toolbar.js";
+import { applyLockUI, updateViewButtons, updateModeButtons } from "./ui/toolbar.js";
 import { renderSwatches, closeEditor } from "./ui/editor.js";
 import { closeGroupEditor } from "./ui/groupEditor.js";
 import { cloudConnected, flushSave } from "./sync.js";
@@ -52,6 +52,7 @@ function init() {
   applyLockUI(); // start in view-only mode
   updateCloudUI();
   updateViewButtons();
+  updateModeButtons(); // restore the saved gantt/tasks view before first render
   if (cloudConnected()) {
     // a key is remembered — connect (discover + load) behind the loading veil.
     // connect() lifts the gate on success; on failure it surfaces an error and

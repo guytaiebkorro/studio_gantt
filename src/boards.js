@@ -7,7 +7,7 @@
 // fetch calls, so it works unchanged against any backend.
 // ---------------------------------------------------------------------------
 import { CLOUD_KEY } from "./config.js";
-import { $, esc, toast, chartPane } from "./dom.js";
+import { $, esc, toast, chartPane, wireBackdropClose } from "./dom.js";
 import { S, clearDirty } from "./state.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
@@ -113,6 +113,25 @@ export function renderBoardSelect() {
     const o = document.createElement("option"); o.value = S.cloud.binId; o.textContent = "(current)"; sel.appendChild(o);
   }
   sel.value = S.cloud.binId || "";
+  fitBoardSelect();
+}
+
+// Size the select to its SELECTED option, not its widest one — a native select
+// keeps the width of the longest board name, stranding the chevron far from a
+// short selected name.
+function fitBoardSelect() {
+  const sel = $("board-select");
+  const opt = sel.selectedOptions && sel.selectedOptions[0];
+  if (!opt) { sel.style.width = ""; return; }
+  const probe = document.createElement("span");
+  probe.style.cssText = "position:absolute; visibility:hidden; white-space:nowrap;";
+  probe.style.font = getComputedStyle(sel).font;
+  probe.textContent = opt.textContent;
+  document.body.appendChild(probe);
+  const text = probe.getBoundingClientRect().width;
+  probe.remove();
+  // left padding 14 + right padding (chevron) 28 + 2px borders
+  sel.style.width = Math.ceil(Math.min(200, text + 44)) + "px";
 }
 
 export async function switchBoard(id) {
@@ -228,7 +247,7 @@ export function logout() {
 // --- wiring ---
 $("cloud-btn").addEventListener("click", openCloud);
 $("c-close").addEventListener("click", closeCloud);
-$("cloud-overlay").addEventListener("click", (e) => { if (e.target === $("cloud-overlay") && !S.cloudGate) closeCloud(); });
+wireBackdropClose($("cloud-overlay"), closeCloud, () => !S.cloudGate);
 $("c-connect").addEventListener("click", () => { connect($("c-apikey").value); });
 $("c-logout").addEventListener("click", () => { logout(); });
 $("c-apikey").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); connect($("c-apikey").value); } });

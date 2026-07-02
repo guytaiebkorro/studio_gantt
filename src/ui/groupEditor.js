@@ -2,7 +2,7 @@
 // Group editor modal: add/edit a group, or delete it (which also removes its
 // tasks) with an Undo toast.
 // ---------------------------------------------------------------------------
-import { $, toast } from "../dom.js";
+import { $, toast, wireBackdropClose } from "../dom.js";
 import { S, markDirty, snapshot, restoreState, uid, pickColor } from "../state.js";
 import { render } from "../render/index.js";
 
@@ -23,7 +23,7 @@ export function closeGroupEditor() { gOverlay.classList.remove("show"); S.editin
 
 // --- wiring ---
 $("g-cancel").addEventListener("click", closeGroupEditor);
-gOverlay.addEventListener("click", (e) => { if (e.target === gOverlay) closeGroupEditor(); });
+wireBackdropClose(gOverlay, closeGroupEditor);
 
 $("g-save").addEventListener("click", () => {
   const name = $("g-name").value.trim() || "Group";

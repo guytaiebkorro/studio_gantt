@@ -10,11 +10,16 @@ import { chartBody, chartHeader, $ } from "../dom.js";
 import { ensureRange, chartWidth } from "../dates.js";
 import { S, isCollapsed } from "../state.js";
 import { renderList } from "./list.js";
+import { renderTasksView } from "./tasksView.js";
 import { renderHeader, renderGrid, renderBars, renderDeps, positionTodayLine } from "./chart.js";
 
 export function render() {
   ensureRange();
   const rows = orderedRows();
+
+  // Tasks view replaces the list+chart split; skip the (hidden) chart work.
+  if (S.viewTab === "tasks") { renderTasksView(rows); return; }
+
   const w = chartWidth();
   const h = rows.length * ROW_H;
 
@@ -55,10 +60,10 @@ export function orderedRows() {
   }
   const orphans = S.state.tasks.filter(t => !used.has(t.id) && taskVisible(t, null));
   if (orphans.length) {
-    const ng = { id: "__none", name: "Ungrouped", color: "#94a3b8" };
+    const ng = { id: "__none", name: "Ungrouped", color: "#b3a08c" };
     rows.push({ type: "group", group: ng, count: orphans.length });
     if (!isCollapsed("__none")) {
-      for (const t of orphans) rows.push({ type: "task", task: t, group: { color: "#94a3b8" } });
+      for (const t of orphans) rows.push({ type: "task", task: t, group: { color: "#b3a08c" } });
     }
   }
   return rows;

@@ -6,9 +6,10 @@ html, body {
   margin: 0; height: 100%;
   font-family: var(--font);
   color: var(--text); background: var(--bg);
-  font-size: 13px; overflow: hidden;
+  font-size: 13.5px; overflow: hidden;
+  accent-color: var(--accent); /* native checkboxes / range sliders */
 }
-/* atmospheric neon wash (dark theme only; transparent in light) */
+/* soft warm wash in the page corners */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
@@ -25,6 +26,13 @@ body::before {
   color: var(--muted); font-size: 14px; letter-spacing: .02em;
 }
 #loading.show { display: flex; }
+
+/* green circle-checkmark shown on completed items (list pane + tasks view) */
+.done-badge {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--ok); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+}
+.done-badge svg { width: 11px; height: 11px; }
 
 /* themed scrollbars */
 * { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }

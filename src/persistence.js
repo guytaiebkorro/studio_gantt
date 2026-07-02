@@ -24,9 +24,10 @@ function buildHtml() {
   const root = document.documentElement.cloneNode(true);
   const q = (sel) => root.querySelector(sel);
   const li = q("#list-inner");      if (li) li.innerHTML = "";
+  const tv = q("#tasks-inner");     if (tv) tv.innerHTML = "";
   const ch = q("#chart-header");    if (ch) ch.innerHTML = "";
   const cb = q("#chart-body");
-  if (cb) cb.querySelectorAll(".grid-col, .row-line, .bar, .milestone, .ms-label").forEach(e => e.remove());
+  if (cb) cb.querySelectorAll(".grid-col, .row-line, .bar, .milestone, .ms-label, .gs-label").forEach(e => e.remove());
   const svg = q("#dep-svg");        if (svg) svg.innerHTML = "";
   // collapse open modals/toast so they don't persist as "shown"
   root.querySelectorAll(".overlay").forEach(o => o.classList.remove("show"));

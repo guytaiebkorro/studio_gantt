@@ -14,10 +14,11 @@
   display: flex; flex-direction: column; justify-content: center; align-items: center;
   font-size: 11px; color: var(--muted); overflow: hidden;
 }
-.hdr-cell .big { font-weight: 600; color: var(--text); font-size: 12px; }
+/* dates & numbers read in mono for a steady rhythm */
+.hdr-cell .big { font-family: var(--font-mono); font-weight: 600; color: var(--text); font-size: 12px; }
 /* pronounce weekend days in the date bar */
-.hdr-cell.weekend { background: var(--weekend); box-shadow: inset 0 -2px 0 var(--accent); }
-.hdr-cell.weekend span, .hdr-cell.weekend .big { color: var(--accent); }
+.hdr-cell.weekend { background: var(--weekend); box-shadow: inset 0 -2px 0 var(--accent-2); }
+.hdr-cell.weekend span, .hdr-cell.weekend .big { color: var(--accent-2); }
 #chart-body { position: relative; }
 .grid-col {
   position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--grid);
@@ -30,53 +31,71 @@
 }
 .row-line.group { background: var(--group-bg); }
 #today-line {
-  position: absolute; top: 0; bottom: 0; width: 2px; background: var(--today-line);
-  box-shadow: var(--glow-accent-2); z-index: 6; pointer-events: none;
+  position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px;
+  background: var(--today-line); z-index: 6; pointer-events: none;
+}
+#today-line::before {
+  content: ""; position: absolute; top: 0; left: -4.5px;
+  width: 12px; height: 12px; border-radius: 50%; background: var(--today-line);
 }
 
-/* bars */
+/* bars: chunky rounded pills */
 .bar {
-  position: absolute; height: 22px; border-radius: 6px; cursor: grab;
+  position: absolute; height: var(--bar-h); border-radius: var(--radius-pill); cursor: grab;
   box-shadow: var(--bar-shadow); overflow: hidden; user-select: none;
   display: flex; align-items: center; z-index: 8;
 }
-.bar:hover { filter: brightness(1.12) saturate(1.1); }
+.bar:hover { filter: brightness(1.08) saturate(1.08); }
 .bar:active { cursor: grabbing; }
-.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,.35); }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,.38); }
 .bar .label {
-  position: relative; padding: 0 8px; font-size: 11.5px; color: #fff; white-space: nowrap;
+  position: relative; padding: 0 11px; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap;
   text-shadow: 0 1px 1px rgba(0,0,0,.25); pointer-events: none; overflow: hidden; text-overflow: ellipsis;
 }
 .bar .handle {
-  position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2;
+  position: absolute; top: 0; bottom: 0; width: 9px; cursor: ew-resize; z-index: 2;
 }
 .bar .handle.l { left: 0; }
 .bar .handle.r { right: 0; }
-.bar.selected { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: var(--glow-accent), var(--bar-shadow); }
-/* rollup bar shown on a collapsed group's header row */
+.bar.selected { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--glow-accent), var(--bar-shadow); }
+/* group summary bar on every group header row: an outlined bracket track with
+   downward end tabs, filled by the group's time progress — deliberately NOT a
+   solid pill so it can't be confused with a task bar */
 .bar.group-summary {
-  height: 10px; border-radius: 3px; opacity: .85; cursor: default; box-shadow: none;
+  height: 14px; border-radius: 4px; cursor: default; box-shadow: none;
+  background: transparent; border: 2px solid var(--gs-color);
+  overflow: visible; /* end tabs stick out below */
+}
+.bar.group-summary:hover { filter: none; }
+.bar.group-summary .fill {
+  background: var(--gs-color); opacity: .45; border-radius: 1px;
 }
 .bar.group-summary::before,
 .bar.group-summary::after {
-  content: ""; position: absolute; top: -3px; width: 3px; height: 16px;
-  background: inherit; border-radius: 1px;
+  content: ""; position: absolute; bottom: -8px; width: 4px; height: 8px;
+  background: var(--gs-color); border-radius: 0 0 2px 2px;
 }
-.bar.group-summary::before { left: 0; }
-.bar.group-summary::after  { right: 0; }
+.bar.group-summary::before { left: -2px; }
+.bar.group-summary::after  { right: -2px; }
+.gs-label {
+  position: absolute; height: 14px; display: flex; align-items: center;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--muted);
+  pointer-events: none; z-index: 9;
+}
 
+/* milestones: candy-gem diamonds (18×18 — chart.js hardcodes the 9px half-size) */
 .milestone {
   position: absolute; width: 18px; height: 18px; transform: rotate(45deg);
-  border-radius: 3px; cursor: grab; z-index: 9; box-shadow: var(--shadow);
-  border: 2px solid rgba(255,255,255,.8);
+  border-radius: 5px; cursor: grab; z-index: 9; box-shadow: var(--bar-shadow);
+  border: 2.5px solid var(--panel);
 }
 .milestone.selected { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--glow-accent); }
 .ms-label {
-  position: absolute; font-size: 11px; color: var(--text); white-space: nowrap;
+  position: absolute; font-size: 11.5px; font-weight: 700; color: var(--text); white-space: nowrap;
   pointer-events: none; z-index: 9;
 }
 
 /* dependency arrows */
 #dep-svg { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 7; overflow: visible; }
-#dep-svg > path { stroke: var(--dep); stroke-width: 1.6; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+#dep-svg > path { stroke: var(--dep); stroke-width: 1.8; fill: none; stroke-linejoin: round; stroke-linecap: round; }
 #dep-svg marker path { fill: var(--dep); stroke: none; }

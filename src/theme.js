@@ -1,21 +1,22 @@
 // ---------------------------------------------------------------------------
-// Theme toggle (dark cyberpunk <-> clean light), remembered in localStorage.
+// Theme toggle (warm cream light <-> cozy dark), remembered in localStorage.
 //
 // The inline <head> script already applied the saved theme before first paint
 // to avoid a flash; here we just sync the button label and handle clicks.
 // ---------------------------------------------------------------------------
 import { THEME_KEY } from "./config.js";
 import { $ } from "./dom.js";
+import { icon } from "./icons.js";
 
 export function currentTheme() {
-  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 
 export function applyTheme(t) {
-  if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
   else document.documentElement.removeAttribute("data-theme");
-  $("theme-btn").textContent = t === "light" ? "☀" : "🌙";
-  $("theme-btn").title = t === "light" ? "Switch to dark (hacker) theme" : "Switch to light theme";
+  $("theme-btn").innerHTML = icon(t === "dark" ? "moon" : "sun");
+  $("theme-btn").title = t === "dark" ? "Switch to light theme" : "Switch to dark (cozy) theme";
   try { localStorage.setItem(THEME_KEY, t); } catch (_) {}
 }
 

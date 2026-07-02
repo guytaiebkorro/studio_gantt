@@ -3,7 +3,7 @@
 // swatches, and the save / delete / duplicate actions.
 // ---------------------------------------------------------------------------
 import { COLORS } from "../config.js";
-import { $, esc, toast } from "../dom.js";
+import { $, esc, toast, wireBackdropClose } from "../dom.js";
 import { S, markDirty, snapshot, restoreState, uid } from "../state.js";
 import { today, fmtD, addDays, parseD } from "../dates.js";
 import { render } from "../render/index.js";
@@ -23,12 +23,11 @@ export function openEditor(id, presetGroupId) {
 
   if (t) {
     $("f-name").value = t.name;
+    if ($("f-description")) $("f-description").value = t.description || "";
     $("f-group").value = t.groupId || (S.state.groups[0] && S.state.groups[0].id) || "";
     $("f-milestone").checked = !!t.isMilestone;
     $("f-start").value = t.start;
     $("f-end").value = t.end;
-    $("f-progress").value = t.progress || 0;
-    $("prog-val").textContent = t.progress || 0;
     $("f-use-color").checked = !!t.color;
     $("f-color").value = t.color || groupColorOf($("f-group").value);
     $("f-delete").style.display = "";
@@ -36,12 +35,11 @@ export function openEditor(id, presetGroupId) {
   } else {
     const start = today();
     $("f-name").value = "";
+    if ($("f-description")) $("f-description").value = "";
     $("f-group").value = presetGroupId || (S.state.groups[0] && S.state.groups[0].id) || "";
     $("f-milestone").checked = false;
     $("f-start").value = fmtD(start);
     $("f-end").value = fmtD(addDays(start, 3));
-    $("f-progress").value = 0;
-    $("prog-val").textContent = 0;
     $("f-use-color").checked = !!S.lastColor;
     $("f-color").value = S.lastColor || groupColorOf($("f-group").value);
     $("f-delete").style.display = "none";
@@ -68,7 +66,8 @@ function buildDepList(id) {
 export function toggleMilestoneUI() {
   const ms = $("f-milestone").checked;
   $("end-wrap").style.display = ms ? "none" : "";
-  $("progress-wrap").style.display = ms ? "none" : "";
+  // older saved-HTML shells still contain the removed progress slider — hide it
+  if ($("progress-wrap")) $("progress-wrap").style.display = "none";
 }
 function groupColorOf(gid) { const g = S.state.groups.find(x => x.id === gid); return g ? g.color : "#94a3b8"; }
 
@@ -97,7 +96,6 @@ export function closeEditor() { edOverlay.classList.remove("show"); S.editingId 
 
 // --- wiring ---
 $("f-milestone").addEventListener("change", toggleMilestoneUI);
-$("f-progress").addEventListener("input", () => $("prog-val").textContent = $("f-progress").value);
 $("f-use-color").addEventListener("change", () => {
   if (!$("f-use-color").checked) $("f-color").value = groupColorOf($("f-group").value);
   syncColorUI();
@@ -108,26 +106,28 @@ $("f-group").addEventListener("change", () => {
 });
 
 $("f-cancel").addEventListener("click", closeEditor);
-edOverlay.addEventListener("click", (e) => { if (e.target === edOverlay) closeEditor(); });
+wireBackdropClose(edOverlay, closeEditor);
 
 $("f-save").addEventListener("click", () => {
   if (S.locked) return;
   const name = $("f-name").value.trim() || "Untitled";
+  const prev = S.editingId ? S.state.tasks.find(x => x.id === S.editingId) : null;
+  // older saved-HTML shells have no description field — keep the stored value
+  const description = $("f-description") ? $("f-description").value.trim() : ((prev && prev.description) || "");
   const isMs = $("f-milestone").checked;
   let start = $("f-start").value || fmtD(today());
   let end = isMs ? start : ($("f-end").value || start);
   if (!isMs && parseD(end) < parseD(start)) end = start;
   const groupId = $("f-group").value || null;
-  const progress = isMs ? 0 : Number($("f-progress").value);
   const deps = Array.from($("f-deps").querySelectorAll("input:checked")).map(i => i.value);
   const color = $("f-use-color").checked ? $("f-color").value : null;
   if (color) S.lastColor = color; // reuse this color as the default for the next new task
 
   if (S.editingId) {
     const t = S.state.tasks.find(x => x.id === S.editingId);
-    Object.assign(t, { name, groupId, start, end, progress, isMilestone: isMs, deps, color });
+    Object.assign(t, { name, description, groupId, start, end, isMilestone: isMs, deps, color });
   } else {
-    S.state.tasks.push({ id: uid("t"), name, groupId, start, end, progress, isMilestone: isMs, deps, color });
+    S.state.tasks.push({ id: uid("t"), name, description, groupId, start, end, isMilestone: isMs, deps, color });
   }
   markDirty(); closeEditor(); render();
 });

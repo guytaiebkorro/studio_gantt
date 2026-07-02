@@ -5,7 +5,7 @@
 import { ROW_H, BAR_PAD, MONTHS, DOW } from "../config.js";
 import { chartHeader, chartBody, depSvg, todayLine } from "../dom.js";
 import { esc } from "../dom.js";
-import { addDays, diffDays, parseD, dateToX, today, dayWidth, totalDays, chartWidth } from "../dates.js";
+import { addDays, diffDays, parseD, fmtD, dateToX, today, dayWidth, totalDays, chartWidth, progressOf } from "../dates.js";
 import { S, isCollapsed } from "../state.js";
 import { attachBarDrag, attachMilestoneDrag, isSelected } from "../ui/interactions.js";
 import { rowIndexOfTask } from "./index.js";
@@ -101,13 +101,13 @@ export function renderGrid(rows, w, h) {
 
 export function renderBars(rows, w, h) {
   // remove old bars / milestones / labels
-  chartBody.querySelectorAll(".bar, .milestone, .ms-label").forEach(e => e.remove());
+  chartBody.querySelectorAll(".bar, .milestone, .ms-label, .gs-label").forEach(e => e.remove());
   const dw = dayWidth();
   rows.forEach((r, idx) => {
     if (r.type === "group") {
-      // When a group is collapsed its task rows are hidden, so draw a single
-      // rollup bar on the group header row spanning its tasks' date range.
-      if (!isCollapsed(r.group.id)) return;
+      // Always draw a summary bar on the group header row spanning its tasks'
+      // date range — an outlined "bracket" track (clearly distinct from the
+      // solid task pills) filled by the group's time-based progress.
       const members = S.state.tasks.filter(t => t.groupId === r.group.id
         || (r.group.id === "__none" && !S.state.groups.some(g => g.id === t.groupId)));
       if (!members.length) return;
@@ -121,13 +121,21 @@ export function renderBars(rows, w, h) {
       const top = idx * ROW_H;
       const x = dateToX(min);
       const days = Math.max(1, diffDays(min, max) + 1);
+      const prog = progressOf({ start: fmtD(min), end: fmtD(max), isMilestone: false });
       const sum = document.createElement("div");
       sum.className = "bar group-summary";
       sum.style.left = x + "px";
-      sum.style.top = (top + (ROW_H - 10) / 2) + "px";
+      sum.style.top = (top + (ROW_H - 14) / 2) + "px";
       sum.style.width = (days * dw) + "px";
-      sum.style.background = r.group.color;
+      sum.style.setProperty("--gs-color", r.group.color);
+      sum.innerHTML = `<div class="fill" style="width:${prog.pct}%"></div>`;
       chartBody.appendChild(sum);
+      const lbl = document.createElement("div");
+      lbl.className = "gs-label";
+      lbl.textContent = prog.pct + "%";
+      lbl.style.left = (x + days * dw + 8) + "px";
+      lbl.style.top = (top + (ROW_H - 14) / 2) + "px";
+      chartBody.appendChild(lbl);
       return;
     }
     if (r.type !== "task") return;
@@ -160,7 +168,7 @@ export function renderBars(rows, w, h) {
       bar.style.width = bw + "px";
       bar.style.background = t.color || r.group.color;
       bar.dataset.id = t.id;
-      bar.innerHTML = `<div class="fill" style="width:${t.progress}%"></div>
+      bar.innerHTML = `<div class="fill" style="width:${progressOf(t).pct}%"></div>
                        <div class="handle l"></div>
                        <span class="label">${esc(t.name)}</span>
                        <div class="handle r"></div>`;

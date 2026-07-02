@@ -3,6 +3,8 @@
 // dragging a task onto a group header to move it between groups).
 // ---------------------------------------------------------------------------
 import { listInner, esc } from "../dom.js";
+import { progressOf } from "../dates.js";
+import { icon } from "../icons.js";
 import { S, isCollapsed, toggleCollapse, markDirty } from "../state.js";
 import { render } from "./index.js";
 import { openEditor } from "../ui/editor.js";
@@ -69,8 +71,9 @@ export function renderList(rows) {
       el.className = "list-row task-row" + (isSelected(t.id) ? " sel" : "");
       el.dataset.id = t.id;
       const mark = t.isMilestone ? "◆ " : "";
+      const done = progressOf(t).done ? `<span class="done-badge" title="Done — end date has passed">${icon("check")}</span>` : "";
       el.innerHTML = `<span class="swatch" style="background:${t.color || r.group.color}"></span>
-                      <span class="nm">${mark}${esc(t.name)}</span>`;
+                      <span class="nm">${mark}${esc(t.name)}</span>${done}`;
       el.addEventListener("click", (e) => {
         if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelection(t.id); return; }
         openEditor(t.id);

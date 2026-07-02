@@ -41,7 +41,7 @@ function mergeList(base, local, remote) {
   function resolve(id) {
     const inB = id in b, inL = id in l, inR = id in r;
     if (inL && inR) {
-      if (!inB) return clone(l);                 // both added → ours
+      if (!inB) return clone(l[id]);             // both added → ours
       const lc = !eq(b[id], l[id]), rc = !eq(b[id], r[id]);
       if (lc && !rc) return clone(l[id]);
       if (rc && !lc) return clone(r[id]);

@@ -16,6 +16,19 @@ export const chartBody   = $("chart-body");
 export const depSvg      = $("dep-svg");
 export const todayLine   = $("today-line");
 
+// Close an overlay only when the pointer both went DOWN and came UP on the
+// backdrop itself — a drag that starts inside the modal and ends outside
+// (e.g. selecting textarea text) must not close it and lose pending edits.
+export function wireBackdropClose(overlay, close, guard) {
+  let downOnBackdrop = false;
+  overlay.addEventListener("pointerdown", (e) => { downOnBackdrop = e.target === overlay; });
+  overlay.addEventListener("pointerup", (e) => {
+    const ok = downOnBackdrop && e.target === overlay;
+    downOnBackdrop = false;
+    if (ok && (!guard || guard())) close();
+  });
+}
+
 // Escape text for safe insertion into innerHTML.
 export function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
