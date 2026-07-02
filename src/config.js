@@ -6,9 +6,9 @@
 // src/backend/jsonbin.js instead, NOT here.
 // ---------------------------------------------------------------------------
 
-// Row / bar geometry (pixels)
-export const ROW_H = 38;
-export const BAR_H = 22;
+// Row / bar geometry (pixels) — must match --row-h / --bar-h in styles/tokens.css
+export const ROW_H = 42;
+export const BAR_H = 26;
 export const BAR_PAD = (ROW_H - BAR_H) / 2;
 
 // Per-view column width (pixels per day) for the day / week / month zoom levels.
@@ -28,7 +28,7 @@ export const INITIAL_PAD = 180;
 export const EDGE_PX = 400;
 
 // Default palette offered in the editor swatches and used for new groups.
-export const COLORS = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899","#14b8a6","#f97316"];
+export const COLORS = ["#f4795b","#f0a12e","#e9c46a","#7fb069","#4ecdc4","#5c9ded","#a78bda","#ef7fae"];
 
 // Autosave timing (ms).
 export const SAVE_IDLE_MS = 2500;   // save this long after the last edit
@@ -42,3 +42,4 @@ export const POLL_ENABLED = false;
 export const THEME_KEY = "gantt_theme_v1";
 export const COLLAPSE_KEY = "gantt_collapsed_v1";
 export const CLOUD_KEY = "gantt_jsonbin_v1";
+export const VIEWTAB_KEY = "gantt_viewtab_v1";

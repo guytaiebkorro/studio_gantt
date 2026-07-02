@@ -139,12 +139,16 @@ export function toggleSelection(id) {
   refreshSelection();
 }
 
-// Sync the .selected / .sel classes in both chart and list to selectedIds.
+// Sync the .selected / .sel classes in the chart, list and tasks view to selectedIds.
 export function refreshSelection() {
   chartBody.querySelectorAll(".bar, .milestone").forEach(el => {
     el.classList.toggle("selected", S.selectedIds.has(el.dataset.id));
   });
   listInner.querySelectorAll(".list-row.task-row").forEach(el => {
+    el.classList.toggle("sel", S.selectedIds.has(el.dataset.id));
+  });
+  const tasksInner = $("tasks-inner");
+  if (tasksInner) tasksInner.querySelectorAll(".tv-row").forEach(el => {
     el.classList.toggle("sel", S.selectedIds.has(el.dataset.id));
   });
 }
@@ -171,6 +175,16 @@ chartPane.addEventListener("scroll", () => {
     S.extending = false;
   }
 });
+
+// The left list only mirrors the chart's scroll (overflow: hidden), so wheel
+// events over it would otherwise do nothing — forward them to the chart pane,
+// whose scroll handler re-syncs the list. Chart stays the single scroll owner.
+$("list-pane").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const k = e.deltaMode === 1 ? 16 : 1; // line-mode deltas (Firefox) → px
+  chartPane.scrollTop += e.deltaY * k;
+  chartPane.scrollLeft += e.deltaX * k;
+}, { passive: false });
 
 // Click empty chart space to clear the selection.
 chartBody.addEventListener("pointerdown", (e) => {

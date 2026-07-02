@@ -6,7 +6,7 @@
 // file, so all mutable state now lives as PROPERTIES of one shared object `S`.
 // Modules read/write `S.foo`; the live object is the single source of truth.
 // ---------------------------------------------------------------------------
-import { VIEW, COLLAPSE_KEY, COLORS } from "./config.js";
+import { VIEW, COLLAPSE_KEY, VIEWTAB_KEY, COLORS } from "./config.js";
 import { scheduleCloudSave } from "./sync.js";
 import { render } from "./render/index.js";
 import { updateViewButtons } from "./ui/toolbar.js";
@@ -33,6 +33,10 @@ export const S = {
 
   // collapsed groups, remembered per board in localStorage
   collapsedMap: (() => { try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}"); } catch (_) { return {}; } })(),
+
+  // active main view (gantt chart or full-width task list) — a personal UI
+  // preference, so it lives in localStorage rather than the shared board doc
+  viewTab: (() => { try { return localStorage.getItem(VIEWTAB_KEY) === "tasks" ? "tasks" : "gantt"; } catch (_) { return "gantt"; } })(),
 
   // --- cloud runtime (configured by boards.js at startup) ---
   cloud: null,                 // { apiKey, binId, registryId } — credentials + board + discovered registry
@@ -90,8 +94,9 @@ export function normalize(data) {
   if (!VIEW[s.settings.viewMode]) s.settings.viewMode = "week";
   s.tasks.forEach(t => {
     t.deps = Array.isArray(t.deps) ? t.deps : [];
-    t.progress = typeof t.progress === "number" ? t.progress : 0;
+    delete t.progress; // legacy field — progress is now derived from dates (see dates.js progressOf)
     t.isMilestone = !!t.isMilestone;
+    t.description = typeof t.description === "string" ? t.description : "";
     if (!t.end) t.end = t.start;
     if (!t.id) t.id = uid("t");
   });

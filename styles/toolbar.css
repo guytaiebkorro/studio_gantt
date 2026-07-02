@@ -3,44 +3,60 @@
    ============================================================ */
 #toolbar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px 12px; background: var(--panel);
+  padding: 10px 14px; background: var(--panel);
   border-bottom: 1px solid var(--border); box-shadow: var(--shadow); z-index: 30;
 }
 #toolbar .title {
-  font-weight: 700; font-size: 15px; margin-right: 6px;
-  color: var(--accent); text-shadow: var(--text-glow); letter-spacing: .04em;
+  font-family: var(--font-display); font-weight: 600; font-size: 17px; margin-right: 6px;
+  color: var(--accent); letter-spacing: .01em;
   display: inline-flex; align-items: center; gap: 7px;
 }
-#toolbar .title-logo { display: block; border-radius: 4px; }
+#toolbar .title-logo { display: block; border-radius: 6px; }
 #toolbar .spacer { flex: 1; }
 .board-select {
-  height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; color: var(--text); background: var(--input-bg);
-  border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 8px; max-width: 200px;
+  height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; font-weight: 600; color: var(--text); background: var(--input-bg);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-pill); max-width: 200px;
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  /* custom chevron hugging the label — the native select arrow sits at the far
+     right edge and drifts away from short board names */
+  appearance: none; -webkit-appearance: none;
+  padding: 0 28px 0 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a08b74' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+}
+:root[data-theme="dark"] .board-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238fa0b5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 .filter-input {
-  height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; color: var(--text); background: var(--input-bg);
-  border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 10px; width: 150px;
+  height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; font-weight: 600; color: var(--text); background: var(--input-bg);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 0 14px; width: 150px;
   transition: box-shadow .15s, border-color .15s, width .15s;
 }
-.filter-input::placeholder { color: var(--muted); }
+.filter-input::placeholder { color: var(--muted); font-weight: 400; }
 .filter-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow-accent); width: 200px; }
 .btn {
   height: var(--ctrl-h); border: 1px solid var(--border-strong); background: var(--btn-bg); color: var(--text);
-  padding: 0 11px; border-radius: 7px; cursor: pointer; font-size: 12.5px; font-family: inherit;
+  padding: 0 14px; border-radius: var(--radius-pill); cursor: pointer; font-size: 12.5px; font-family: inherit; font-weight: 700;
   line-height: 1; display: inline-flex; align-items: center; gap: 6px; transition: box-shadow .15s, background .15s, border-color .15s;
 }
-.btn:hover { background: var(--btn-hover); border-color: var(--accent); box-shadow: var(--glow-accent); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); box-shadow: var(--glow-accent); font-weight: 600; }
-.btn.primary:hover { background: var(--accent-hover); }
+.btn:hover { background: var(--btn-hover); border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); box-shadow: var(--shadow); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn:disabled { opacity: .5; cursor: default; box-shadow: none; }
-.seg { height: var(--ctrl-h); display: inline-flex; align-items: stretch; border: 1px solid var(--border-strong); border-radius: 7px; overflow: hidden; }
-.seg button {
-  border: none; background: var(--btn-bg); padding: 0 12px; cursor: pointer; font-size: 12.5px; color: var(--text); font-family: inherit;
-  border-left: 1px solid var(--border); display: inline-flex; align-items: center;
+/* segmented control: pill chips inside a soft track */
+.seg {
+  height: var(--ctrl-h); display: inline-flex; align-items: stretch;
+  background: var(--chip-bg); border-radius: var(--radius-pill); padding: 3px; gap: 2px;
 }
-.seg button:first-child { border-left: none; }
-.seg button:hover { background: var(--btn-hover); }
-.seg button.active { background: var(--accent); color: var(--accent-text); }
+.seg button {
+  border: none; background: transparent; padding: 0 12px; cursor: pointer; font-size: 12.5px; font-weight: 700;
+  color: var(--muted); font-family: inherit; border-radius: var(--radius-pill);
+  display: inline-flex; align-items: center; transition: background .15s, color .15s;
+}
+.seg button:hover { color: var(--text); background: var(--btn-hover); }
+.seg button.active { background: var(--accent); color: var(--accent-text); box-shadow: var(--shadow); }
 .dirty-dot {
   width: 8px; height: 8px; border-radius: 50%; background: var(--danger); display: none;
   margin-left: 2px;
@@ -50,7 +66,7 @@ body.dirty .dirty-dot { display: inline-block; }
   width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); display: inline-block;
   margin-left: 2px; vertical-align: middle;
 }
-body.cloud-on .cloud-dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+body.cloud-on .cloud-dot { background: var(--ok); }
 body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
 /* While the Cloud popup is gated (no valid key yet), only the key + Connect are
    usable; hide board management and the auto-save note. */
@@ -67,7 +83,7 @@ body.cloud-on #c-key-entry,
 body.cloud-on .c-key-label,
 body.cloud-on .c-key-hint { display: none; }
 .c-status {
-  font-size: 12.5px; padding: 8px 10px; border-radius: 7px; background: var(--chip-bg); color: var(--muted);
+  font-size: 12.5px; padding: 8px 12px; border-radius: var(--radius-md); background: var(--chip-bg); color: var(--muted);
 }
 .c-status.ok { background: var(--ok-bg); color: var(--ok-text); }
 .c-status.err { background: var(--err-bg); color: var(--err-text); }
@@ -78,9 +94,5 @@ body.cloud-on .c-key-hint { display: none; }
 }
 #save-mode-banner.show { display: block; }
 
-/* neon hairline under the toolbar (cyberpunk finishing touch) */
-#toolbar { border-bottom: 1px solid var(--accent); box-shadow: 0 1px 0 var(--accent), var(--shadow); }
-:root[data-theme="light"] #toolbar { box-shadow: var(--shadow); border-bottom: 1px solid var(--border); }
-
-/* theme toggle button keeps its glow subtle */
-#theme-btn { font-size: 14px; }
+/* inline SVG icons inherit the button's text color via currentColor */
+.btn svg { width: 15px; height: 15px; flex: 0 0 auto; }

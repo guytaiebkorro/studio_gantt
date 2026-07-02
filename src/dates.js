@@ -18,6 +18,21 @@ export function diffDays(a, b) { return Math.round((stripTime(b) - stripTime(a))
 export function stripTime(dt) { return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); }
 export function today() { return stripTime(new Date()); }
 
+// Time-derived progress; dates are the single source of truth (there is no
+// stored progress field). done: the end date (or milestone date) is fully
+// behind today. pct: calendar days elapsed / total days (0 before start;
+// milestones have no in-between pct).
+export function progressOf(t) {
+  const now = today();
+  const end = parseD(t.end || t.start);
+  if (now > end) return { pct: 100, done: true };
+  if (t.isMilestone) return { pct: 0, done: false };
+  const start = parseD(t.start);
+  if (now < start) return { pct: 0, done: false };
+  const total = diffDays(start, end) + 1;
+  return { pct: Math.round((diffDays(start, now) / total) * 100), done: false };
+}
+
 // --- geometry: date <-> x coordinate (depend on view mode + visible range) ---
 export function dayWidth() { return VIEW[S.state.settings.viewMode].dayWidth; }
 export function dateToX(dt) { return diffDays(S.rangeStart, dt) * dayWidth(); }
