@@ -141,6 +141,24 @@ async function pollTick() {
   try { await syncFromRemote(); } catch (_) { /* transient; try again next tick */ }
 }
 
+// Refresh when the app becomes active again (tab selected / window refocused).
+// Pulls teammates' edits AND re-renders so the "today" marker and time-based
+// progress reflect the current wall-clock — a day (or more) may have elapsed
+// while the tab sat in the background. Switching back fires both
+// `visibilitychange` (→ visible) and `focus`, so coalesce them into one hit.
+let activateTimer = null;
+export function refreshOnActivate() {
+  if (activateTimer) return; // a refresh is already queued from the paired event
+  activateTimer = setTimeout(async () => {
+    activateTimer = null;
+    if (uiBusy() || S.savePromise) return; // don't disturb active work / an in-flight save
+    if (cloudConnected() && S.cloud.binId && S.cloudReady) {
+      try { await syncFromRemote(); } catch (_) { /* transient; polling/next activate retries */ }
+    }
+    preserveAndRender(); // always re-render for the fresh clock, even with no remote change
+  }, 150);
+}
+
 // Manual one-shot refresh (one load). Bound to the 🔄 toolbar button.
 export async function refreshNow() {
   if (!cloudConnected() || !S.cloud.binId) { toast("Cloud not configured"); return; }
