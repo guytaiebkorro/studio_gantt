@@ -14,7 +14,7 @@ import { setupTheme } from "./theme.js";
 import { applyLockUI, updateViewButtons, updateModeButtons } from "./ui/toolbar.js";
 import { renderSwatches, closeEditor } from "./ui/editor.js";
 import { closeGroupEditor } from "./ui/groupEditor.js";
-import { cloudConnected, flushSave } from "./sync.js";
+import { cloudConnected, flushSave, refreshOnActivate } from "./sync.js";
 import { initCloudConfig, connect, openCloud, updateCloudUI, closeCloud } from "./boards.js";
 import { save } from "./persistence.js";
 import "./ui/interactions.js"; // ensure its top-level wiring runs
@@ -28,8 +28,14 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("beforeunload", (e) => {
   if (S.dirty) { e.preventDefault(); e.returnValue = ""; }
 });
-// flush any pending batched save when the tab is hidden (switch away / minimize)
-document.addEventListener("visibilitychange", () => { if (document.hidden && S.dirty) flushSave(); });
+// On tab hide (switch away / minimize): flush any pending batched save.
+// On tab show: reload data + refresh the clock-derived UI (today marker, progress).
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { if (S.dirty) flushSave(); }
+  else refreshOnActivate();
+});
+// Window regaining focus is the desktop-browser equivalent of "becomes active".
+window.addEventListener("focus", refreshOnActivate);
 
 // --- startup ---
 function init() {
