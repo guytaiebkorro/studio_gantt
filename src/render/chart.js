@@ -108,8 +108,10 @@ export function renderBars(rows, w, h) {
       // Always draw a summary bar on the group header row spanning its tasks'
       // date range — an outlined "bracket" track (clearly distinct from the
       // solid task pills) filled by the group's time-based progress.
-      const members = S.state.tasks.filter(t => t.groupId === r.group.id
-        || (r.group.id === "__none" && !S.state.groups.some(g => g.id === t.groupId)));
+      // Top-level tasks only — a subtask is already covered by its parent's
+      // rolled-up range, so folding it in again would just double-count.
+      const members = S.state.tasks.filter(t => !t.parentId && (t.groupId === r.group.id
+        || (r.group.id === "__none" && !S.state.groups.some(g => g.id === t.groupId))));
       if (!members.length) return;
       let min = null, max = null;
       for (const t of members) {
@@ -147,7 +149,7 @@ export function renderBars(rows, w, h) {
       m.className = "milestone" + (isSelected(t.id) ? " selected" : "");
       m.style.left = (x - 9) + "px";
       m.style.top = (top + (ROW_H - 18) / 2) + "px";
-      m.style.background = t.color || r.group.color;
+      m.style.background = r.color;
       m.dataset.id = t.id;
       chartBody.appendChild(m);
       const lbl = document.createElement("div");
@@ -162,16 +164,26 @@ export function renderBars(rows, w, h) {
       const days = Math.max(1, diffDays(parseD(t.start), parseD(t.end)) + 1);
       const bw = days * dw;
       const bar = document.createElement("div");
-      bar.className = "bar" + (isSelected(t.id) ? " selected" : "");
+      // A task with subtasks is a container: its span is rolled up from its
+      // children, so it wears a fixed --parent-frame outline over a tint of its
+      // own colour and offers no resize handles. Shape and frame — not hue —
+      // separate it from the pills nested under it, which share its colour.
+      bar.className = "bar" + (r.hasKids ? " parent" : "") + (isSelected(t.id) ? " selected" : "");
       bar.style.left = x + "px";
       bar.style.top = (top + BAR_PAD) + "px";
       bar.style.width = bw + "px";
-      bar.style.background = t.color || r.group.color;
       bar.dataset.id = t.id;
-      bar.innerHTML = `<div class="fill" style="width:${progressOf(t).pct}%"></div>
-                       <div class="handle l"></div>
-                       <span class="label">${esc(t.name)}</span>
-                       <div class="handle r"></div>`;
+      if (r.hasKids) {
+        bar.style.setProperty("--task-color", r.color);
+        bar.innerHTML = `<div class="fill" style="width:${progressOf(t).pct}%"></div>
+                         <span class="label">${esc(t.name)}</span>`;
+      } else {
+        bar.style.background = r.color;
+        bar.innerHTML = `<div class="fill" style="width:${progressOf(t).pct}%"></div>
+                         <div class="handle l"></div>
+                         <span class="label">${esc(t.name)}</span>
+                         <div class="handle r"></div>`;
+      }
       chartBody.appendChild(bar);
       attachBarDrag(bar, t);
     }

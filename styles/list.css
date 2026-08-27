@@ -37,10 +37,24 @@
 .list-row .caret:hover { color: var(--text); }
 .list-row.task-row { padding-left: 34px; cursor: grab; }
 .list-row.task-row.sel { background-color: var(--hover); box-shadow: inset 0 0 0 2px var(--accent); }
+/* a task with subtasks: its caret takes the place of the left inset, so the
+   swatch stays on the same 34px column as every other task row */
+.list-row.task-row.parent { padding-left: 8px; font-weight: 700; }
+.list-row.task-row.parent .caret { margin-left: 0; }
+.list-row.task-row.parent .swatch { box-shadow: 0 0 0 2px var(--parent-frame); }
+/* a subtask: indented under its parent behind a small elbow */
+.list-row.task-row.subtask { padding-left: 46px; }
+.list-row.task-row.subtask::before {
+  content: "└"; flex: 0 0 auto; color: var(--muted); font-size: 12px; line-height: 1; opacity: .75;
+}
 .list-row.dragging { opacity: .4; }
 .list-row.drop-before { box-shadow: inset 0 2px 0 0 var(--accent); }
 .list-row.drop-after { box-shadow: inset 0 -2px 0 0 var(--accent); }
-.list-row.group-head.drop-into { background-color: var(--drop); box-shadow: inset 0 0 0 2px var(--accent); }
+.list-row.drop-into { background-color: var(--drop); box-shadow: inset 0 0 0 2px var(--accent); }
+/* "+ subtask" button: revealed on row hover so it doesn't add noise at rest */
+.row-add { opacity: 0; transition: opacity .12s; }
+.list-row:hover .row-add, .row-add:focus-visible { opacity: 1; }
+body.locked .row-add { display: none; }
 .grp-add {
   flex: 0 0 auto; width: 22px; height: 22px; padding: 0; border-radius: var(--radius-pill);
   border: 1px solid var(--border-strong); background: var(--btn-bg); color: var(--muted);

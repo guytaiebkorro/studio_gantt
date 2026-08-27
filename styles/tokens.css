@@ -38,6 +38,7 @@
   --accent-hover: #e5644a;
   --accent-text: #ffffff;       /* text on accent fills */
   --accent-2: #f0a12e;          /* marigold (today-line / secondary) */
+  --parent-frame: #8a6f57;      /* frame on a task that has subtasks (warm ink) */
   --grid: #f3e8d5;
   --grid-strong: #e6d5b8;
   --weekend: #f6ecdb;
@@ -90,6 +91,7 @@
   --accent-hover: #ffa583;
   --accent-text: #2b1a12;
   --accent-2: #ffc061;          /* honey */
+  --parent-frame: #8ea3bd;      /* frame on a task that has subtasks (cool slate) */
   --grid: #222b37;
   --grid-strong: #2d3949;
   --weekend: #1c2430;
