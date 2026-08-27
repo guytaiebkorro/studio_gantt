@@ -58,6 +58,17 @@
 .bar .handle.l { left: 0; }
 .bar .handle.r { right: 0; }
 .bar.selected { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--glow-accent), var(--bar-shadow); }
+/* a task that HAS subtasks: a squared, framed container tinted with its own
+   colour. Its subtasks inherit that colour as solid pills, so the fixed
+   --parent-frame outline (not the hue) is what marks it as the container. */
+.bar.parent {
+  border: 2.5px solid var(--parent-frame); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--task-color) 20%, var(--panel));
+  box-shadow: none; cursor: grab;
+}
+.bar.parent:hover { filter: brightness(1.03); }
+.bar.parent .fill { background: color-mix(in srgb, var(--task-color) 45%, transparent); }
+.bar.parent .label { color: var(--text); text-shadow: none; padding: 0 9px; }
 /* group summary bar on every group header row: an outlined bracket track with
    downward end tabs, filled by the group's time progress — deliberately NOT a
    solid pill so it can't be confused with a task bar */

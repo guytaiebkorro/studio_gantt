@@ -45,6 +45,21 @@ body.tasks-view #today-btn { display: none; }
 .tv-row:hover { border-color: var(--accent); }
 .tv-row.sel { border-color: var(--accent); box-shadow: var(--glow-accent); }
 .tv-rail { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; }
+/* a task that HAS subtasks: framed like its bar in the chart */
+.tv-row.parent { border-color: var(--parent-frame); border-width: 2px; }
+.tv-row.parent .tv-name { font-size: 15px; }
+.tv-row.parent .caret {
+  flex: 0 0 auto; width: 16px; margin-left: -4px; text-align: center;
+  cursor: pointer; color: var(--muted); font-size: 15px; line-height: 1;
+}
+.tv-row.parent .caret:hover { color: var(--text); }
+/* a subtask: indented under its parent, with a slimmer rail */
+.tv-row.subtask { margin-left: 34px; padding-left: 16px; }
+.tv-row.subtask .tv-rail { width: 3px; }
+.tv-row.subtask .tv-name { font-weight: 700; font-size: 13px; }
+/* "+ subtask" button: revealed on card hover */
+.tv-row-add { opacity: 0; transition: opacity .12s; margin-left: 4px; }
+.tv-row:hover .tv-row-add, .tv-row-add:focus-visible { opacity: 1; }
 .tv-main { flex: 1; min-width: 0; }
 .tv-name {
   font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px;

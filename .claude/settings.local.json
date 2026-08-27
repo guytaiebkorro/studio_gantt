@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(GIT_CONFIG_GLOBAL=/Users/aiagent/.gitconfig git log *)",
+      "Bash(GIT_CONFIG_GLOBAL=/Users/aiagent/.gitconfig git config --local user.name \"GuyTaieb\")",
+      "Bash(GIT_CONFIG_GLOBAL=/Users/aiagent/.gitconfig git config --local user.email \"guy@coach-ai.com\")",
+      "Bash(GIT_CONFIG_GLOBAL=/Users/aiagent/.gitconfig git commit --amend --reset-author --no-edit)",
+      "Bash(node --check src/sync.js)",
+      "Bash(node --check src/main.js)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git config *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

@@ -50,7 +50,7 @@ function groupHeader(r) {
     add.className = "grp-add tv-add";
     add.textContent = "+";
     add.title = "Add task to this group";
-    add.addEventListener("click", (e) => { e.stopPropagation(); openEditor(null, g.id); });
+    add.addEventListener("click", (e) => { e.stopPropagation(); openEditor(null, { groupId: g.id }); });
     el.appendChild(add);
   }
   return el;
@@ -58,15 +58,23 @@ function groupHeader(r) {
 
 function taskCard(r) {
   const t = r.task;
-  const color = t.color || r.group.color;
+  const color = r.color; // a subtask inherits its parent's colour
+  const col = r.hasKids && isCollapsed(t.id);
   const el = document.createElement("div");
-  el.className = "tv-row" + (isSelected(t.id) ? " sel" : "");
+  el.className = "tv-row"
+               + (r.hasKids ? " parent" : "")
+               + (r.depth ? " subtask" : "")
+               + (isSelected(t.id) ? " sel" : "");
   el.dataset.id = t.id;
 
   const dates = t.isMilestone ? esc(t.start) : `${esc(t.start)} – ${esc(t.end)}`;
   const marker = t.isMilestone
     ? `<span class="tv-ms" style="background:${color}" title="Milestone"></span>`
     : "";
+  const caret = r.hasKids
+    ? `<span class="caret" title="${col ? "Expand" : "Collapse"}">${col ? "▸" : "▾"}</span>` : "";
+  const kidChip = r.hasKids
+    ? `<span class="tv-count">${r.kidCount} subtask${r.kidCount > 1 ? "s" : ""}</span>` : "";
   const desc = t.description
     ? `<div class="tv-desc">${esc(t.description)}</div>`
     : "";
@@ -81,16 +89,26 @@ function taskCard(r) {
 
   el.innerHTML = `<span class="tv-rail" style="background:${color}"></span>
                   <div class="tv-main">
-                    <div class="tv-name">${marker}${esc(t.name)}</div>
+                    <div class="tv-name">${caret}${marker}${esc(t.name)}${kidChip}</div>
                     ${desc}
                   </div>
                   <div class="tv-side">
-                    <span class="tv-dates">${dates}</span>
+                    <span class="tv-dates"${r.hasKids ? ' title="Rolled up from this task’s subtasks"' : ""}>${dates}</span>
                     ${progress}
                   </div>`;
+  if (r.hasKids) el.querySelector(".caret")
+    .addEventListener("click", (e) => { e.stopPropagation(); toggleCollapse(t.id); });
   el.addEventListener("click", (e) => {
     if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelection(t.id); return; }
     openEditor(t.id);
   });
+  if (!r.depth) {
+    const add = document.createElement("button");
+    add.className = "grp-add tv-add tv-row-add";
+    add.textContent = "+";
+    add.title = "Add a subtask";
+    add.addEventListener("click", (e) => { e.stopPropagation(); openEditor(null, { parentId: t.id }); });
+    el.appendChild(add);
+  }
   return el;
 }

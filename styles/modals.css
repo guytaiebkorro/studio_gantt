@@ -31,6 +31,11 @@
 .modal input:focus, .modal select:focus, .modal textarea:focus {
   outline: none; border-color: var(--accent); box-shadow: var(--glow-accent);
 }
+/* explains a control the hierarchy has taken over (empty = hidden) */
+.hint { color: var(--muted); font-size: 11.5px; margin-top: 5px; line-height: 1.4; }
+.hint:empty { display: none; }
+/* a field driven by the parent task rather than by this form */
+.modal .derived { opacity: .55; pointer-events: none; }
 .row2 { display: flex; gap: 10px; }
 .row2 > div { flex: 1; }
 .check { display: flex; align-items: center; gap: 8px; }

@@ -5,17 +5,19 @@
 // ---------------------------------------------------------------------------
 import { EDGE_PX } from "../config.js";
 import { $, chartPane, chartBody, listInner } from "../dom.js";
-import { S, markDirty } from "../state.js";
+import { S, markDirty, subtreeIds } from "../state.js";
 import { dayWidth, dateToX, addDays, parseD, fmtD, diffDays, chartWidth } from "../dates.js";
 import { render } from "../render/index.js";
 import { openEditor } from "./editor.js";
 
 // --- attach handlers to a rendered bar / milestone ---
 export function attachBarDrag(bar, t) {
+  // A parent bar renders no handles — its span is rolled up from its subtasks,
+  // so there is nothing to resize.
   const lh = bar.querySelector(".handle.l");
   const rh = bar.querySelector(".handle.r");
-  lh.addEventListener("pointerdown", (e) => startResize(e, t, "l"));
-  rh.addEventListener("pointerdown", (e) => startResize(e, t, "r"));
+  if (lh) lh.addEventListener("pointerdown", (e) => startResize(e, t, "l"));
+  if (rh) rh.addEventListener("pointerdown", (e) => startResize(e, t, "r"));
   bar.addEventListener("pointerdown", (e) => {
     if (e.target.classList.contains("handle")) return;
     startDrag(e, t, bar, false);
@@ -42,8 +44,13 @@ function startDrag(e, t, anchorEl, isMs) {
   S.dragging = true;
   const dw = dayWidth();
   const startX = e.clientX;
-  // Snapshot every selected task that is currently on screen.
-  const items = [...S.selectedIds].map(id => {
+  // Dragging a parent moves its whole subtree by the same number of days: the
+  // parent's own dates are re-derived from the moved children afterwards, so
+  // they land on exactly the values set here.
+  const dragIds = new Set();
+  for (const id of S.selectedIds) for (const sid of subtreeIds(id)) dragIds.add(sid);
+  // Snapshot every task in the drag that is currently on screen.
+  const items = [...dragIds].map(id => {
     const task = S.state.tasks.find(x => x.id === id);
     const el = chartBody.querySelector(`.bar[data-id="${id}"], .milestone[data-id="${id}"]`);
     if (!task || !el) return null;

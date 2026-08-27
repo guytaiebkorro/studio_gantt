@@ -55,6 +55,7 @@ export const S = {
 
 // --- dirty tracking ---
 export function markDirty() {
+  recomputeRollups();          // a parent's dates are derived — refresh before anything reads them
   S.dirty = true;
   document.body.classList.add("dirty");
   scheduleCloudSave();
@@ -97,10 +98,97 @@ export function normalize(data) {
     delete t.progress; // legacy field — progress is now derived from dates (see dates.js progressOf)
     t.isMilestone = !!t.isMilestone;
     t.description = typeof t.description === "string" ? t.description : "";
+    t.parentId = typeof t.parentId === "string" ? t.parentId : null; // absent in pre-subtask boards
     if (!t.end) t.end = t.start;
     if (!t.id) t.id = uid("t");
   });
+  repairHierarchy(s);
+  recomputeRollups(s);
   return s;
+}
+
+// ---------------------------------------------------------------------------
+// Subtasks
+//
+// One field carries the hierarchy: `parentId`. There is deliberately no
+// `isParent` flag — a task IS a parent exactly when something points at it, so
+// the two can never disagree. Nesting is ONE level deep: a subtask's parent is
+// always top-level.
+//
+// A parent's start/end are DERIVED from its children but still stored, so
+// exports, 3-way merges and any other reader see a valid document. They are
+// written in exactly one place (recomputeRollups) which runs on every load and
+// on every local edit, so they cannot drift.
+//
+// Colour is different: it is derived at RENDER time (see colorOf) and never
+// written to the subtask, so nesting never destroys a task's own colour and
+// un-nesting restores it.
+// ---------------------------------------------------------------------------
+export function childrenOf(id) { return S.state.tasks.filter(t => t.parentId === id); }
+export function isParent(t) { return !!t && S.state.tasks.some(x => x.parentId === t.id); }
+export function parentOf(t) {
+  return (t && t.parentId) ? (S.state.tasks.find(x => x.id === t.parentId) || null) : null;
+}
+export function subtreeIds(id) { return [id, ...childrenOf(id).map(c => c.id)]; }
+
+// Effective colour: a subtask always shows its PARENT's colour. `fallback` is
+// the row's group colour (already "#b3a08c" for the synthetic Ungrouped group).
+export function colorOf(t, fallback) {
+  const owner = parentOf(t) || t;
+  return owner.color || fallback;
+}
+
+// Restore the invariants on a freshly loaded / merged document.
+function repairHierarchy(s) {
+  const byId = new Map(s.tasks.map(t => [t.id, t]));
+
+  // parentId must name a different, existing task
+  for (const t of s.tasks) {
+    if (t.parentId && (t.parentId === t.id || !byId.has(t.parentId))) t.parentId = null;
+  }
+  // one level only: re-point at the top-most ancestor. A merge can produce a
+  // depth-2 chain (or even a cycle) that neither client ever created, so the
+  // walk carries a visited set and gives up into "top-level" rather than hang.
+  for (const t of s.tasks) {
+    if (!t.parentId) continue;
+    const seen = new Set([t.id]);
+    let p = byId.get(t.parentId);
+    while (p && p.parentId && !seen.has(p.id)) { seen.add(p.id); p = byId.get(p.parentId); }
+    t.parentId = (p && p.id !== t.id && !p.parentId) ? p.id : null;
+  }
+  // a subtask lives in its parent's group
+  for (const t of s.tasks) {
+    const p = t.parentId ? byId.get(t.parentId) : null;
+    if (p) t.groupId = p.groupId;
+  }
+  // a task with subtasks is a container, never a milestone
+  const parents = new Set(s.tasks.filter(t => t.parentId).map(t => t.parentId));
+  for (const t of s.tasks) if (parents.has(t.id)) t.isMilestone = false;
+}
+
+// Roll every parent's start/end up from its children. Dates are "YYYY-MM-DD",
+// so plain string compare is the same as chronological compare.
+export function recomputeRollups(state) {
+  const s = state || S.state;
+  if (!s || !Array.isArray(s.tasks)) return;
+  const kids = new Map();
+  for (const t of s.tasks) {
+    if (!t.parentId) continue;
+    if (!kids.has(t.parentId)) kids.set(t.parentId, []);
+    kids.get(t.parentId).push(t);
+  }
+  for (const t of s.tasks) {
+    const cs = kids.get(t.id);
+    if (!cs || !cs.length) continue;
+    let min = null, max = null;
+    for (const c of cs) {
+      if (!c.start) continue;
+      const end = c.isMilestone ? c.start : (c.end || c.start);
+      if (min === null || c.start < min) min = c.start;
+      if (max === null || end > max) max = end;
+    }
+    if (min) { t.start = min; t.end = max; }
+  }
 }
 
 // --- misc state utilities ---

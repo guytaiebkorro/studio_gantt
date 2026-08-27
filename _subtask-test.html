@@ -211,7 +211,7 @@
 
 <!-- =================== EMBEDDED DATA (saved in place) =================== -->
 <script type="application/json" id="gantt-data">
-{"version":1,"settings":{"viewMode":"week"},"groups":[],"tasks":[]}
+{"version": 1, "settings": {"viewMode": "week"}, "groups": [{"id": "g1", "name": "Design", "color": "#5c9ded"}, {"id": "g2", "name": "Build", "color": "#7fb069"}], "tasks": [{"id": "p1", "name": "Design phase", "groupId": "g1", "start": "2026-09-01", "end": "2026-09-02", "deps": [], "color": null}, {"id": "c1", "name": "Wireframes", "groupId": "g1", "parentId": "p1", "start": "2026-08-24", "end": "2026-09-04", "deps": [], "color": "#ef7fae"}, {"id": "c2", "name": "Visual pass", "groupId": "g2", "parentId": "p1", "start": "2026-09-07", "end": "2026-09-18", "deps": ["c1"], "color": null}, {"id": "c3", "name": "Design signoff", "groupId": "g1", "parentId": "p1", "start": "2026-09-21", "end": "2026-09-21", "isMilestone": true, "deps": [], "color": null}, {"id": "t1", "name": "Standalone task", "groupId": "g1", "start": "2026-09-24", "end": "2026-10-02", "deps": [], "color": "#a78bda"}, {"id": "p2", "name": "Build phase", "groupId": "g2", "start": "2026-01-01", "end": "2026-01-02", "deps": [], "color": "#f0a12e"}, {"id": "c4", "name": "API", "groupId": "g2", "parentId": "p2", "start": "2026-09-28", "end": "2026-10-16", "deps": [], "color": "#4ecdc4"}, {"id": "c5", "name": "Frontend", "groupId": "g2", "parentId": "p2", "start": "2026-10-05", "end": "2026-10-30", "deps": [], "color": null}, {"id": "x1", "name": "Deep (should flatten under Build phase)", "groupId": "g2", "parentId": "c4", "start": "2026-10-20", "end": "2026-10-24", "deps": [], "color": null}, {"id": "y1", "name": "Cycle A", "groupId": null, "parentId": "y2", "start": "2026-11-02", "end": "2026-11-06", "deps": [], "color": null}, {"id": "y2", "name": "Cycle B", "groupId": null, "parentId": "y1", "start": "2026-11-09", "end": "2026-11-13", "deps": [], "color": null}, {"id": "L1", "name": "Legacy ungrouped", "groupId": null, "start": "2026-11-16", "deps": []}]}
 </script>
 <!-- =================== /EMBEDDED DATA =================== -->
 
@@ -236,6 +236,22 @@
   }
 </script>
 
-<script type="module" src="src/main.js"></script>
+<script type="module">
+  // Test harness: bypass the JSONBin gate and render the seeded board.
+  import { S } from "./src/state.js";
+  import { render } from "./src/render/index.js";
+  import { renderSwatches } from "./src/ui/editor.js";
+  import { applyLockUI, updateViewButtons, updateModeButtons } from "./src/ui/toolbar.js";
+  import { dateToX, today } from "./src/dates.js";
+  import { chartPane } from "./src/dom.js";
+  import "./src/ui/interactions.js";
+  S.cloudGate = false;
+  S.locked = false;
+  renderSwatches(); applyLockUI(); updateViewButtons(); updateModeButtons();
+  document.getElementById("loading").classList.remove("show");
+  render();
+  requestAnimationFrame(() => { chartPane.scrollLeft = Math.max(0, dateToX(today()) - 120); });
+  window.__S = S;
+</script>
 </body>
 </html>
