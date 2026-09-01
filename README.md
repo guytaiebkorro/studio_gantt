@@ -30,8 +30,8 @@ Because it's served over HTTPS from GitHub Pages, there's nothing to install and
 - **Israel work week** — weekend shading on **Friday–Saturday**, weeks start Sunday.
 - **Fast edits** — instant delete with an **Undo** toast (no confirm dialogs).
 - A **loading veil** covers startup so you never see placeholder data flash before the cloud loads.
-- **Named workspaces** — connect several JSONBin accounts and switch between them from the Account
-  button, which shows the workspace you're currently in.
+- **Named workspaces** — connect several JSONBin accounts and switch between them; the active
+  workspace's name is the app's title, top-left in the toolbar.
 - **Share links** — one link that opens a workspace with no key to paste.
 
 ---
@@ -61,7 +61,8 @@ A **workspace** is one JSONBin account: the Master Key you paste, plus the **reg
 key unlocks. The registry holds the workspace's name and its list of boards, so the name follows
 the workspace to every device and every person who opens it.
 
-The **Account** button is the workspace indicator — it shows the active workspace's name. Click it to:
+The workspace name **is** the app's title: it sits at the top-left of the toolbar, with the sync dot
+beside it, so which workspace you're in is always visible. Click it to:
 - **Rename** the workspace (default: `Workspace`). Saved into the registry bin.
 - **Switch workspace** — every account you've connected in this browser is listed; one click switches.
 - **Add workspace** — paste another Master Key. Its boards are discovered and it joins the list.
@@ -73,7 +74,7 @@ Keys are remembered per browser in `localStorage`, keyed by registry id, so re-p
 already have updates that workspace instead of duplicating it.
 
 ### Share links
-**Copy share link** in the Account panel produces a URL that carries the workspace key in the URL
+**Copy share link** in the Workspace panel produces a URL that carries the workspace key in the URL
 **fragment**:
 
 ```
@@ -93,7 +94,11 @@ URL safety, not encryption. Share it like a password; to revoke, rotate the key 
 Within a workspace, multiple boards are supported, indexed in that workspace's registry bin:
 - **Board dropdown** (toolbar) — switch between boards.
 - **＋ Board** — create a new (empty) board; it's named and added to the registry.
-- **Account panel** — **New**, **Rename** or **Delete** the current board, and **Save now**.
+- **Workspace panel** — **New board**, **Rename board**, and **Save now**.
+
+Boards can't be deleted from the app: deletion is unrecoverable (there's no version
+history to restore from) and a shared board would disappear under your teammates with no
+undo. Rename a board you're done with, or delete its bin in the JSONBin dashboard.
 
 ---
 
@@ -138,7 +143,7 @@ src/
   merge.js              the 3-way merge (pure, backend-agnostic)
   theme.js              dark / light toggle
   sync.js               autosave, polling, refresh, merge-on-save
-  boards.js             workspace + board switching, CRUD, the Account panel
+  boards.js             workspace + board switching, CRUD, the Workspace panel
   workspaces.js         the device-local list of workspaces (localStorage)
   share.js              share-link encode / consume + copy to clipboard
   persistence.js        local "save to file" fallback + JSON import/export

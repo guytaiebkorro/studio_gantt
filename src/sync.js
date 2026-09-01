@@ -15,7 +15,7 @@ import { merge3, clone } from "./merge.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
 import { updateViewButtons } from "./ui/toolbar.js";
-import { openCloud, updateAccountButton } from "./boards.js";
+import { openCloud, updateWorkspaceButton } from "./boards.js";
 
 export function cloudConnected() { return !!(S.cloud && S.cloud.apiKey); }
 
@@ -30,7 +30,7 @@ export function setSync(s) {
   if (cloudDot) cloudDot.style.background = c;
   // The button shows the workspace name, so boards.js owns its label and title.
   S.syncState = s;
-  updateAccountButton();
+  updateWorkspaceButton();
 }
 
 // Re-render after a programmatic state swap without losing the scroll position.

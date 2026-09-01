@@ -91,7 +91,7 @@ body.locked #c-ws-name { pointer-events: none; opacity: .65; }
 body.locked #add-task, body.locked #add-milestone, body.locked #add-group,
 body.locked #board-new, body.locked #import-btn, body.locked #save-btn,
 body.locked #f-save, body.locked #f-delete, body.locked #f-duplicate,
-body.locked #c-savenow, body.locked #c-create, body.locked #c-rename, body.locked #c-delete { display: none !important; }
+body.locked #c-savenow, body.locked #c-create, body.locked #c-rename { display: none !important; }
 /* the editor opens read-only while locked */
 body.locked #editor-overlay .body input,
 body.locked #editor-overlay .body select,

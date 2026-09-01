@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Workspaces and boards: the board registry, the toolbar switcher, board CRUD,
-// the workspace switcher, and the Account panel UI.
+// the workspace switcher, and the Workspace panel UI.
 //
 // Two levels of grouping:
 //   workspace — one backend account (a credential + its registry bin). The
@@ -24,7 +24,7 @@ import {
 
 // --- cloud config persistence ({ apiKey, binId, registryId }) ---
 // Nothing is embedded: a blank apiKey means "not connected yet" and the gated
-// Account popup will demand a Master Key. The config is a view onto the active
+// Workspace popup will demand a Master Key. The config is a view onto the active
 // entry in the workspace list, so persisting it writes through to that entry.
 export function persistCloud() { saveActive(S.cloud, S.workspaceName); }
 
@@ -46,7 +46,7 @@ export function initCloudConfig() {
 // Connect with a candidate Master Key: resolve the account's board registry
 // (cached → verify, else discover by listing, else create a fresh workspace),
 // load its boards, and lift the gate. Shared by startup, workspace switching,
-// share links, and the Account panel.
+// share links, and the Workspace panel.
 //
 // `target` names the workspace to open — { registryId, binId, name } — and
 // REPLACES whatever the app was pointed at, so switching accounts can't inherit
@@ -65,7 +65,7 @@ export async function connect(apiKey, target) {
     S.cloud.apiKey = apiKey;
     backend.apiKey = apiKey;
   }
-  updateAccountButton();
+  updateWorkspaceButton();
   setSync("syncing"); setCloudStatus("Connecting…", "");
   $("loading").classList.add("show");
   try {
@@ -96,7 +96,7 @@ export async function connect(apiKey, target) {
       S.cloud.binId = S.registry[0].id; renderBoardSelect();
     }
     persistCloud(); // cache the name the registry just gave us alongside the key
-    updateAccountButton();
+    updateWorkspaceButton();
     S.cloudReady = false;
     if (S.cloud.binId) await loadFromCloud(); else render();
 
@@ -210,31 +210,17 @@ async function renameBoard() {
   catch (err) { toast("Rename failed: " + err.message); }
 }
 
-async function deleteBoard() {
-  if (S.registry.length <= 1) { toast("Can't delete the only board"); return; }
-  const entry = S.registry.find(b => b.id === S.cloud.binId);
-  if (!confirm("Delete board “" + (entry ? entry.name : S.cloud.binId) + "”?\nThis removes it from the list and deletes its data.")) return;
-  const delId = S.cloud.binId;
-  S.registry = S.registry.filter(b => b.id !== delId);
-  try {
-    await saveRegistry();
-    try { await backend.deleteBoardData(delId); } catch (_) {}
-    S.cloud.binId = S.registry[0].id; persistCloud();
-    S.cloudReady = false;
-    renderBoardSelect();
-    $("loading").classList.add("show");
-    await loadFromCloud();
-    $("loading").classList.remove("show");
-    toast("Board deleted");
-  } catch (err) { toast("Delete failed: " + err.message); }
-}
+// There is deliberately no delete-board action. Boards are the unit of shared
+// work and deletion is unrecoverable — the backend keeps no version history the
+// app can restore from, and a teammate's board would vanish under them with
+// nothing to undo. Retiring a board is a rename away.
 
 // --- workspace name + switcher ---
 
-// The Account button doubles as the workspace indicator, so you can always see
-// which workspace you're in. Its title also carries the sync state, which
-// setSync() refreshes through here.
-export function updateAccountButton() {
+// The workspace button sits in the toolbar's title slot — the workspace you're
+// in is more useful there than the app's own name. Its tooltip also carries the
+// sync state, which setSync() refreshes through here.
+export function updateWorkspaceButton() {
   const conn = cloudConnected() && !S.cloudGate;
   const name = S.workspaceName || DEFAULT_WORKSPACE_NAME;
   const label = $("cloud-label");
@@ -291,13 +277,13 @@ async function renameWorkspace(raw) {
   const prev = S.workspaceName;
   if (name === prev) { renderWorkspaceName(); return; }
   S.workspaceName = name;
-  persistCloud(); updateAccountButton(); renderWorkspaceList(); renderWorkspaceName();
+  persistCloud(); updateWorkspaceButton(); renderWorkspaceList(); renderWorkspaceName();
   try {
     await saveRegistry();
     toast("Workspace renamed ✓");
   } catch (err) {
     S.workspaceName = prev;
-    persistCloud(); updateAccountButton(); renderWorkspaceList(); renderWorkspaceName();
+    persistCloud(); updateWorkspaceButton(); renderWorkspaceList(); renderWorkspaceName();
     toast("Rename failed: " + err.message);
   }
 }
@@ -382,7 +368,7 @@ export function updateCloudUI() {
   }
   else if (!S.cloudGate) { setSync("idle"); }
   else { setCloudStatus("Paste your JSONBin Master Key to connect.", ""); setSync("idle"); }
-  updateAccountButton();
+  updateWorkspaceButton();
   renderWorkspaceName();
   renderWorkspaceList();
 }
@@ -450,7 +436,6 @@ $("c-ws-add").addEventListener("click", () => {
 $("c-savenow").addEventListener("click", () => { saveToCloud(); });
 $("c-create").addEventListener("click", () => { newBoard(); });
 $("c-rename").addEventListener("click", () => { renameBoard(); });
-$("c-delete").addEventListener("click", () => { deleteBoard(); });
 // toolbar board switcher
 $("board-select").addEventListener("change", (e) => { switchBoard(e.target.value); });
 $("board-new").addEventListener("click", () => { newBoard(); });

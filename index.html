@@ -37,7 +37,7 @@
 <body>
 <div id="app">
   <div id="toolbar">
-    <span class="title"><img class="title-logo" src="favicon-32.png" alt="" width="20" height="20">Gantt</span>
+    <button class="btn title-btn" id="cloud-btn" title="Account &amp; cloud sync"><img class="title-logo" src="favicon-32.png" alt="" width="20" height="20"><span id="cloud-label">Account</span><span class="cloud-dot"></span></button>
     <select id="board-select" class="board-select" title="Switch board"></select>
     <button class="btn" id="board-new" title="Create a new board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Board</button>
     <button class="btn" id="refresh-btn" title="Pull the latest from the cloud"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
@@ -63,7 +63,6 @@
     <button class="btn" id="export-btn">Export</button>
     <button class="btn" id="import-btn">Import</button>
     <button class="btn primary" id="save-btn">Save <span class="dirty-dot"></span></button>
-    <button class="btn" id="cloud-btn" title="Account &amp; cloud sync"><span id="cloud-label">Account</span> <span class="cloud-dot"></span></button>
   </div>
   <div id="save-mode-banner"></div>
 
@@ -182,7 +181,7 @@
       <div class="cloud-board-controls">
         <label>Workspace name</label>
         <input type="text" id="c-ws-name" autocomplete="off" placeholder="Workspace" maxlength="60">
-        <div class="hint">Shown on the Account button. Stored with the workspace, so everyone who opens it sees the same name.</div>
+        <div class="hint">Shown in the toolbar. Stored with the workspace, so everyone who opens it sees the same name.</div>
       </div>
       <div id="c-ws-section">
         <label>Switch workspace</label>
@@ -217,7 +216,6 @@
         <button class="btn" id="c-savenow">Save now</button>
         <button class="btn" id="c-create">New board</button>
         <button class="btn" id="c-rename">Rename board</button>
-        <button class="btn danger" id="c-delete">Delete board</button>
       </div>
       <div class="cloud-board-controls" style="color:var(--muted); font-size:11.5px;">
         Changes auto-save to the cloud as you edit — no Save button needed.

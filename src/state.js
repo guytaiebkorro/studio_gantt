@@ -44,7 +44,7 @@ export const S = {
   registry: [],                // [{ id, name }] list of boards in the active workspace
   workspaceName: DEFAULT_WORKSPACE_NAME, // active workspace's name (authoritative copy lives in its registry bin)
   workspaces: [],              // [{ id, apiKey, name, binId, lastUsed }] every workspace remembered on this device
-  syncState: "idle",           // last value passed to setSync — shown in the Account button's title
+  syncState: "idle",           // last value passed to setSync — shown in the workspace button's tooltip
   loadedAt: 0,                 // updatedAt of the remote version our state descends from
   baseState: null,             // common ancestor for 3-way merge
   pollTimer: null,

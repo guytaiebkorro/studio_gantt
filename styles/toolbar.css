@@ -6,11 +6,15 @@
   padding: 10px 14px; background: var(--panel);
   border-bottom: 1px solid var(--border); box-shadow: var(--shadow); z-index: 30;
 }
-#toolbar .title {
+/* The workspace button IS the app title — it sits where a product name would,
+   because which workspace you're in matters more than being told this is a
+   Gantt app. Styled as display type rather than a toolbar pill. */
+#toolbar .title-btn {
   font-family: var(--font-display); font-weight: 600; font-size: 17px; margin-right: 6px;
   color: var(--accent); letter-spacing: .01em;
-  display: inline-flex; align-items: center; gap: 7px;
+  gap: 7px; padding: 0 10px 0 6px; border-color: transparent; background: transparent;
 }
+#toolbar .title-btn:hover { background: var(--btn-hover); border-color: var(--border-strong); }
 #toolbar .title-logo { display: block; border-radius: 6px; }
 #toolbar .spacer { flex: 1; }
 .board-select {
@@ -68,9 +72,10 @@ body.dirty .dirty-dot { display: inline-block; }
 }
 body.cloud-on .cloud-dot { background: var(--ok); }
 body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
-/* The Account button carries the workspace name — keep a long one from pushing
-   the toolbar around. */
-#cloud-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The workspace name sits in the title slot — keep a long one from pushing the
+   toolbar around. */
+#cloud-label { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#toolbar .title-btn .cloud-dot { margin-left: 0; }
 /* While the Account popup is gated (no valid key yet), only the key + Connect
    and the list of remembered workspaces are usable; hide the rest. */
 body.cloud-gated .cloud-board-controls,
