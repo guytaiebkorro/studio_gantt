@@ -3,7 +3,7 @@
 // Today jump, and view-only (lock) mode.
 // ---------------------------------------------------------------------------
 import { VIEWTAB_KEY } from "../config.js";
-import { $, chartPane } from "../dom.js";
+import { $, chartPane, toast } from "../dom.js";
 import { S, markDirty } from "../state.js";
 import { xToDate, dateToX, dayWidth, today } from "../dates.js";
 import { render } from "../render/index.js";
@@ -47,15 +47,27 @@ export function setViewTab(mode) {
 }
 
 // --- view-only (lock) mode ---
+//
+// Two distinct things share this button. `S.locked` is the per-session lock the
+// user toggles at will. `S.viewOnly` means the workspace was opened from a
+// view-only share link: the lock is held shut and the button stops being a
+// toggle at all (see setViewOnly in boards.js).
 export function applyLockUI() {
   document.body.classList.toggle("locked", S.locked);
   const btn = $("lock-btn");
-  btn.classList.toggle("locked", S.locked);
+  btn.classList.toggle("locked", S.locked && !S.viewOnly);
   btn.classList.toggle("editing", !S.locked);
-  btn.innerHTML = S.locked ? icon("lock") + "<span>View only</span>" : icon("unlock") + "<span>Editing</span>";
-  btn.title = S.locked ? "Read-only — click to start editing" : "Editing — click to lock (view only)";
+  btn.classList.toggle("fixed", S.viewOnly);
+  btn.innerHTML = S.viewOnly
+    ? icon("lock") + "<span>View only</span>"
+    : (S.locked ? icon("lock") + "<span>View only</span>" : icon("unlock") + "<span>Editing</span>");
+  btn.title = S.viewOnly
+    ? "Opened from a view-only link — editing is off for this workspace"
+    : (S.locked ? "Read-only — click to start editing" : "Editing — click to lock (view only)");
+  btn.setAttribute("aria-disabled", S.viewOnly ? "true" : "false");
 }
 function toggleLock() {
+  if (S.viewOnly) { toast("This workspace was opened from a view-only link"); return; }
   S.locked = !S.locked;
   if (S.locked) closeEditor();
   applyLockUI();

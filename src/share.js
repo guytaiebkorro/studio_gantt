@@ -4,9 +4,17 @@
 // A share link carries the workspace's credential in the URL fragment, so
 // opening it drops the recipient straight into the board with nothing to paste:
 //
-//   https://…/index.html#w1.<base64url({ k, r, b, n })>
+//   https://…/index.html#w1.<base64url({ k, r, b, n, p })>
 //
 //   k = credential   r = registry id   b = board to open   n = workspace name
+//   p = "view" | "edit"   (absent = edit, for links issued before p existed)
+//
+// A "view" link opens the board with editing switched off and the lock button
+// unable to open it (see S.viewOnly). That is an ACCIDENT GUARD, not a
+// permission: the credential is still in the link, so a recipient who wants to
+// write can read the key out of it and call the API directly. It stops
+// stakeholders from nudging a bar by mistake; it does not contain someone who
+// is trying. Only a real backend with server-side roles could do that.
 //
 // The FRAGMENT, not a query string: fragments are never sent to the server, so
 // the key stays out of hosting logs and Referer headers. It is also stripped
@@ -42,15 +50,16 @@ function decode(token) {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-// Absolute link to the active workspace + current board. "" when there's
-// nothing to share yet.
-export function buildShareLink() {
+// Absolute link to the active workspace + current board, in the given mode
+// ("view" or "edit"). "" when there's nothing to share yet.
+export function buildShareLink(mode) {
   if (!S.cloud || !S.cloud.apiKey) return "";
   const payload = {
     k: S.cloud.apiKey,
     r: S.cloud.registryId || "",
     b: S.cloud.binId || "",
-    n: S.workspaceName || DEFAULT_WORKSPACE_NAME
+    n: S.workspaceName || DEFAULT_WORKSPACE_NAME,
+    p: mode === "view" ? "view" : "edit"
   };
   return location.href.split("#")[0] + "#" + PREFIX + encode(payload);
 }
@@ -66,7 +75,11 @@ export function consumeShareToken() {
   try {
     const p = decode(hash.slice(PREFIX.length));
     if (!p || typeof p.k !== "string" || !p.k) throw new Error("no credential");
-    return { apiKey: p.k, registryId: p.r || "", binId: p.b || "", name: p.n || DEFAULT_WORKSPACE_NAME };
+    return {
+      apiKey: p.k, registryId: p.r || "", binId: p.b || "",
+      name: p.n || DEFAULT_WORKSPACE_NAME,
+      viewOnly: p.p === "view"   // absent/anything else = full editing
+    };
   } catch (_) {
     toast("That share link is damaged — ask for a new one");
     return null;
@@ -98,11 +111,16 @@ function legacyCopy(text) {
   return ok;
 }
 
-async function copyShareLink() {
+async function copyShareLink(mode) {
   if (S.cloudGate) { toast("Connect to a workspace first"); return; }
-  const url = buildShareLink();
+  // A view-only session can't hand out edit links — it would undo the very
+  // restriction it's under. (It can still pass the view link along.)
+  if (mode === "edit" && S.viewOnly) { toast("This session is view-only"); return; }
+  const url = buildShareLink(mode);
   if (!url) { toast("Connect to a workspace first"); return; }
-  const done = () => toast("Share link copied — it carries the workspace key, so treat it like a password");
+  const done = () => toast(mode === "view"
+    ? "View-only link copied — opens without editing, but still carries the key"
+    : "Edit link copied — it carries the workspace key, so treat it like a password");
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(url);
@@ -115,4 +133,5 @@ async function copyShareLink() {
 }
 
 // --- wiring ---
-$("c-share").addEventListener("click", () => { copyShareLink(); });
+$("c-share-view").addEventListener("click", () => { copyShareLink("view"); });
+$("c-share-edit").addEventListener("click", () => { copyShareLink("edit"); });

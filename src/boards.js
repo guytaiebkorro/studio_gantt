@@ -16,6 +16,7 @@ import { S, clearDirty } from "./state.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
+import { applyLockUI } from "./ui/toolbar.js";
 import { loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus, cloudConnected, startPolling } from "./sync.js";
 import {
   initWorkspaces, saveActive, findWorkspace, getActiveId,
@@ -26,7 +27,20 @@ import {
 // Nothing is embedded: a blank apiKey means "not connected yet" and the gated
 // Workspace popup will demand a Master Key. The config is a view onto the active
 // entry in the workspace list, so persisting it writes through to that entry.
-export function persistCloud() { saveActive(S.cloud, S.workspaceName); }
+export function persistCloud() { saveActive(S.cloud, S.workspaceName, S.viewOnly); }
+
+// Apply (or lift) view-only mode for the workspace being opened.
+//
+// View-only is enforced by holding `S.locked` on and refusing to open it — every
+// write path in the app already checks S.locked, so this needs no separate
+// gating. It is an accident guard, not a permission: the key travels in the
+// link either way (see share.js).
+export function setViewOnly(on) {
+  S.viewOnly = !!on;
+  document.body.classList.toggle("view-only", S.viewOnly);
+  if (S.viewOnly) S.locked = true;
+  applyLockUI();
+}
 
 // Point the app at a workspace without loading anything yet.
 function setActiveCloud(cfg) {
@@ -48,10 +62,10 @@ export function initCloudConfig() {
 // load its boards, and lift the gate. Shared by startup, workspace switching,
 // share links, and the Workspace panel.
 //
-// `target` names the workspace to open — { registryId, binId, name } — and
-// REPLACES whatever the app was pointed at, so switching accounts can't inherit
-// the previous one's registry or board. Pass null to resume the active
-// workspace as remembered (the startup path).
+// `target` names the workspace to open — { registryId, binId, name, viewOnly }
+// — and REPLACES whatever the app was pointed at, so switching accounts can't
+// inherit the previous one's registry, board or edit rights. Pass null to resume
+// the active workspace as remembered (the startup path).
 //
 // Returns true on success. On failure the gate stays up and an error is shown.
 export async function connect(apiKey, target) {
@@ -61,9 +75,11 @@ export async function connect(apiKey, target) {
     setActiveCloud({ apiKey, registryId: target.registryId, binId: target.binId });
     // A cached name paints the toolbar now; the registry's copy wins once loaded.
     S.workspaceName = target.name || DEFAULT_WORKSPACE_NAME;
+    setViewOnly(!!target.viewOnly);
   } else {
     S.cloud.apiKey = apiKey;
     backend.apiKey = apiKey;
+    setViewOnly(S.viewOnly); // resuming: re-assert what initWorkspaces() restored
   }
   updateWorkspaceButton();
   setSync("syncing"); setCloudStatus("Connecting…", "");
@@ -261,7 +277,7 @@ export async function switchWorkspace(id) {
   if (!w) { toast("That workspace is no longer saved"); return; }
   if (w.id && w.id === (S.cloud.registryId || getActiveId()) && !S.cloudGate) { closeCloud(); return; }
   await leaveActiveWorkspace();
-  const ok = await connect(w.apiKey, { registryId: w.id, binId: w.binId, name: w.name });
+  const ok = await connect(w.apiKey, { registryId: w.id, binId: w.binId, name: w.name, viewOnly: w.viewOnly });
   if (ok) { toast(`Switched to “${S.workspaceName}” ✓`); return; }
   // Nothing is loaded and the credential didn't work — re-gate rather than leave
   // an empty board looking connected. The switcher stays available behind it.
@@ -273,6 +289,7 @@ export async function switchWorkspace(id) {
 // device and every share-link recipient sees it; the local list caches it.
 async function renameWorkspace(raw) {
   if (!cloudConnected() || S.cloudGate) return;
+  if (S.viewOnly) { renderWorkspaceName(); return; } // the field is inert; don't write
   const name = (raw || "").trim() || DEFAULT_WORKSPACE_NAME;
   const prev = S.workspaceName;
   if (name === prev) { renderWorkspaceName(); return; }
@@ -318,6 +335,7 @@ function clearLoadedBoard() {
 function gateForNewKey() {
   setActiveCloud({});
   S.workspaceName = DEFAULT_WORKSPACE_NAME;
+  setViewOnly(false); // nothing is open; the next connect decides again
   S.cloudGate = true;
   document.body.classList.remove("ws-adding");
   $("c-apikey").value = "";
@@ -387,10 +405,15 @@ export function closeCloud() {
 // Manual key entry. A pasted key must never inherit the CURRENT workspace's
 // registry or board — but if it belongs to a workspace we already remember,
 // reuse that one's cached ids instead of paying for discovery again.
+//
+// Typing the key yourself always grants editing: whoever holds the key is an
+// owner, so a workspace previously opened from a view-only link is promoted.
 async function connectWithKey(raw) {
   const key = (raw || "").trim();
   const known = S.workspaces.find(w => w.apiKey === key);
-  const ok = await connect(key, known ? { registryId: known.id, binId: known.binId, name: known.name } : {});
+  const ok = await connect(key, known
+    ? { registryId: known.id, binId: known.binId, name: known.name, viewOnly: false }
+    : { viewOnly: false });
   if (ok) { document.body.classList.remove("ws-adding"); $("c-apikey").value = ""; }
   return ok;
 }

@@ -32,7 +32,7 @@ Because it's served over HTTPS from GitHub Pages, there's nothing to install and
 - A **loading veil** covers startup so you never see placeholder data flash before the cloud loads.
 - **Named workspaces** — connect several JSONBin accounts and switch between them; the active
   workspace's name is the app's title, top-left in the toolbar.
-- **Share links** — one link that opens a workspace with no key to paste.
+- **Share links** — one link that opens a workspace with no key to paste, in view-only or edit mode.
 
 ---
 
@@ -74,21 +74,28 @@ Keys are remembered per browser in `localStorage`, keyed by registry id, so re-p
 already have updates that workspace instead of duplicating it.
 
 ### Share links
-**Copy share link** in the Workspace panel produces a URL that carries the workspace key in the URL
-**fragment**:
+The Workspace panel offers **Copy view-only link** and **Copy edit link**. Both produce a URL that
+carries the workspace key in the URL **fragment**:
 
 ```
-https://…/index.html#w1.<base64url({ k: key, r: registryId, b: boardId, n: name })>
+https://…/index.html#w1.<base64url({ k: key, r: registryId, b: boardId, n: name, p: "view"|"edit" })>
 ```
 
-Opening it connects immediately and lands on the same board the sender was on — no key prompt. The
+Opening one connects immediately and lands on the same board the sender was on — no key prompt. The
 workspace is then saved to the recipient's switcher, so the link is only needed once. The fragment is
 stripped from the address bar as soon as it's read, and fragments are never sent to the server, so
 the key stays out of hosting logs and `Referer` headers.
 
-⚠️ **It's a bearer link.** A JSONBin Master Key is account-wide and can't be scoped, so anyone with
-the link has full read/write/**delete** on every board in the workspace. `base64url` is encoding for
-URL safety, not encryption. Share it like a password; to revoke, rotate the key in JSONBin.
+**View-only links** open with editing switched off and the lock button unable to open it, and that
+sticks across reloads (it's stored with the workspace). Typing the key in yourself always grants
+editing — whoever holds the key is an owner — which also promotes a workspace first opened from a
+view-only link. A view-only session can hand out further view-only links but not edit links.
+
+⚠️ **View-only is an accident guard, not a permission.** A JSONBin Master Key is account-wide and
+can't be scoped, so the key rides in *both* kinds of link. View-only stops a stakeholder from nudging
+a bar by mistake; it does not stop anyone who reads the key out of the link and calls the API. Real
+read-only sharing would need a backend with server-side roles. `base64url` is encoding for URL
+safety, not encryption. Treat every link like a password; to revoke, rotate the key in JSONBin.
 
 ### Boards
 Within a workspace, multiple boards are supported, indexed in that workspace's registry bin:
@@ -110,8 +117,9 @@ This is a lightweight, no-backend tool. The trade-offs that come with that:
    app is gated until you paste a **Master Key**, and it's kept only in your browser. But JSONBin
    Master Keys are account-wide (an Access Key can't list bins, so discovery wouldn't work), which
    means:
-   - There is **no read-only share and no per-board share**. Anyone you give the key — or a
-     **share link** — to can read, edit and delete every board in that workspace.
+   - There is **no enforceable read-only share and no per-board share**. Anyone you give the key —
+     or any **share link**, view-only included — to can technically read, edit and delete every board
+     in that workspace. A view-only link switches the UI off, which prevents accidents, not intent.
    - A leaked key exposes the whole JSONBin account, not just this app's bins.
    - **To revoke access, rotate the key in JSONBin.** Removing a workspace only forgets it locally.
    - If you need real privacy/auth, you'd need a proper backend (out of scope here).
@@ -183,7 +191,7 @@ What's kept there:
 
 | `localStorage` key | Holds |
 |---|---|
-| `gantt_workspaces_v1` | `{ activeId, list: [{ id, apiKey, name, binId, lastUsed }] }` — every workspace remembered on this device. |
+| `gantt_workspaces_v1` | `{ activeId, list: [{ id, apiKey, name, binId, viewOnly, lastUsed }] }` — every workspace remembered on this device. |
 | `gantt_jsonbin_v1` | The pre-workspaces single-account config. Read once to migrate, then unused. |
 | `gantt_collapsed_v1` | Collapsed groups, per board. |
 | `gantt_theme_v1`, `gantt_viewtab_v1` | Theme and Gantt/Tasks view preference. |

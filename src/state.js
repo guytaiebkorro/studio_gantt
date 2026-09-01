@@ -28,6 +28,8 @@ export const S = {
   lastColor: null,             // remembers the last custom color picked, to reuse on new tasks
   dragging: false,             // true during a bar/milestone/row drag (pauses cloud refresh)
   locked: true,                // app starts view-only every launch; lock button toggles editing
+  viewOnly: false,             // arrived via a view-only share link: `locked` is stuck on and the
+                               // lock button can't open it. A UI guard, not a permission — see share.js.
   dragTaskId: null,            // task id being dragged in the left list
   extending: false,            // guards the endless-timeline scroll extension
 

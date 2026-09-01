@@ -61,6 +61,9 @@ export function initWorkspaces() {
   const active = store.list.find(w => w.id && w.id === store.activeId) || store.list[0] || null;
   activeId = active ? active.id : "";
   S.workspaceName = (active && active.name) || DEFAULT_WORKSPACE_NAME;
+  // View-only has to survive a reload, or closing the tab would quietly promote
+  // a view-only recipient to an editor.
+  S.viewOnly = !!(active && active.viewOnly);
   persist();
   return active
     ? { apiKey: active.apiKey, binId: active.binId || "", registryId: active.id || "" }
@@ -70,7 +73,7 @@ export function initWorkspaces() {
 // Remember `cloud` (+ the workspace's name) as the active workspace. Called on
 // every cloud-config change — connect, board switch, rename — so the list never
 // drifts from what the app is actually pointed at.
-export function saveActive(cloud, name) {
+export function saveActive(cloud, name, viewOnly) {
   if (!cloud || !cloud.apiKey) { activeId = ""; persist(); return null; }
   const id = cloud.registryId || "";
   // Match on the registry, or absorb a pre-discovery entry saved under the same
@@ -81,6 +84,7 @@ export function saveActive(cloud, name) {
   e.apiKey = cloud.apiKey;
   e.binId = cloud.binId || "";
   if (name) e.name = name;
+  e.viewOnly = !!viewOnly;
   e.lastUsed = Date.now();
   activeId = id;
   persist();

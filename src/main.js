@@ -66,9 +66,11 @@ function init() {
   // only needed once. (The token is stripped from the URL as it's read.)
   const shared = consumeShareToken();
   if (shared) {
-    connect(shared.apiKey, { registryId: shared.registryId, binId: shared.binId, name: shared.name })
+    connect(shared.apiKey, { registryId: shared.registryId, binId: shared.binId, name: shared.name, viewOnly: shared.viewOnly })
       .then(ok => {
-        if (ok) toast(`Opened “${S.workspaceName}” from a shared link ✓`);
+        if (ok) toast(shared.viewOnly
+          ? `Opened “${S.workspaceName}” — view only`
+          : `Opened “${S.workspaceName}” from a shared link ✓`);
         else openCloud(); // bad or revoked key — connect() explained why
       })
       .finally(() => { $("loading").classList.remove("show"); });
