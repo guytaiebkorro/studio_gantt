@@ -43,6 +43,33 @@
 .dep-list { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow: auto;
   border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; }
 .dep-list .d { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+
+/* ---------- Workspace switcher (Account panel) ---------- */
+.ws-list {
+  display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius-md); padding: 6px;
+}
+.ws-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--radius-md);
+  cursor: pointer; font-size: 13px; font-weight: 700; transition: background .15s;
+}
+.ws-row:hover, .ws-row:focus-visible { background: var(--btn-hover); outline: none; }
+.ws-row.active { background: var(--chip-bg); cursor: default; }
+.ws-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-badge {
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ok-text); background: var(--ok-bg); padding: 2px 7px; border-radius: var(--radius-pill);
+}
+/* the × sits quiet until the row is hovered, so switching stays the obvious action */
+.ws-forget {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 17px; line-height: 1; padding: 0 4px; border-radius: 6px; opacity: 0;
+  font-family: inherit;
+}
+.ws-row:hover .ws-forget, .ws-forget:focus-visible { opacity: 1; }
+.ws-forget:hover { color: var(--danger); }
+/* renaming a workspace writes to the shared registry — read-only while locked */
+body.locked #c-ws-name { pointer-events: none; opacity: .65; }
 .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
 .modal .foot .left { margin-right: auto; }
 .danger { color: var(--danger); border-color: var(--danger-border); }

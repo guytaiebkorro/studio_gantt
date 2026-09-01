@@ -15,7 +15,7 @@ import { merge3, clone } from "./merge.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
 import { updateViewButtons } from "./ui/toolbar.js";
-import { openCloud } from "./boards.js";
+import { openCloud, updateAccountButton } from "./boards.js";
 
 export function cloudConnected() { return !!(S.cloud && S.cloud.apiKey); }
 
@@ -28,7 +28,9 @@ export function setSync(s) {
   // dot color: grey idle, amber pending/syncing, green ok, red error
   const c = { idle: "#cbd2dd", pending: "#f59e0b", syncing: "#f59e0b", ok: "#10b981", err: "#ef4444" }[s] || "#cbd2dd";
   if (cloudDot) cloudDot.style.background = c;
-  $("cloud-btn").title = "Account: " + s;
+  // The button shows the workspace name, so boards.js owns its label and title.
+  S.syncState = s;
+  updateAccountButton();
 }
 
 // Re-render after a programmatic state swap without losing the scroll position.

@@ -63,7 +63,7 @@
     <button class="btn" id="export-btn">Export</button>
     <button class="btn" id="import-btn">Import</button>
     <button class="btn primary" id="save-btn">Save <span class="dirty-dot"></span></button>
-    <button class="btn" id="cloud-btn" title="Account &amp; cloud sync">Account <span class="cloud-dot"></span></button>
+    <button class="btn" id="cloud-btn" title="Account &amp; cloud sync"><span id="cloud-label">Account</span> <span class="cloud-dot"></span></button>
   </div>
   <div id="save-mode-banner"></div>
 
@@ -173,22 +173,35 @@
   </div>
 </div>
 
-<!-- JSONBin cloud sync -->
+<!-- Workspace: name, switcher, key entry, board management -->
 <div class="overlay" id="cloud-overlay">
   <div class="modal">
-    <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>Cloud Sync (JSONBin)</h3>
+    <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>Workspace</h3>
     <div class="body">
       <div id="c-status" class="c-status">Not connected.</div>
+      <div class="cloud-board-controls">
+        <label>Workspace name</label>
+        <input type="text" id="c-ws-name" autocomplete="off" placeholder="Workspace" maxlength="60">
+        <div class="hint">Shown on the Account button. Stored with the workspace, so everyone who opens it sees the same name.</div>
+      </div>
+      <div id="c-ws-section">
+        <label>Switch workspace</label>
+        <div class="ws-list" id="c-ws-list"></div>
+      </div>
       <div>
         <label class="c-key-label">JSONBin Master Key</label>
         <div id="c-key-entry">
           <input type="password" id="c-apikey" autocomplete="off" placeholder="Paste your JSONBin Master Key" style="flex:1;">
           <button class="btn primary" id="c-connect">Connect</button>
         </div>
-        <button class="btn danger" id="c-logout">Log out &amp; change key</button>
         <div class="c-key-hint" style="color:var(--muted); font-size:11.5px; margin-top:4px;">
           Your boards are discovered from this key and isolated per account — only people with the key can access them.
           The key is stored only in this browser. A <b>Master Key</b> is required (Access Keys can’t discover boards).
+        </div>
+        <div class="ws-actions">
+          <button class="btn" id="c-ws-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add workspace</button>
+          <button class="btn danger" id="c-logout">Remove this workspace</button>
+          <button class="btn danger" id="c-logout-all">Log out of all</button>
         </div>
       </div>
       <div class="cloud-board-controls" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">

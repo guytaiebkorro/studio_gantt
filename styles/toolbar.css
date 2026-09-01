@@ -68,20 +68,27 @@ body.dirty .dirty-dot { display: inline-block; }
 }
 body.cloud-on .cloud-dot { background: var(--ok); }
 body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
-/* While the Cloud popup is gated (no valid key yet), only the key + Connect are
-   usable; hide board management and the auto-save note. */
-body.cloud-gated .cloud-board-controls { display: none; }
+/* The Account button carries the workspace name — keep a long one from pushing
+   the toolbar around. */
+#cloud-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* While the Account popup is gated (no valid key yet), only the key + Connect
+   and the list of remembered workspaces are usable; hide the rest. */
+body.cloud-gated .cloud-board-controls,
+body.cloud-gated .ws-actions { display: none; }
 
-/* Connected: the key can't be changed inline — hide the entry + hint and show
-   "Log out & change key" instead. Logged out: the reverse.
+/* Connected: the key can't be changed inline — hide the entry + hint until
+   "Add workspace" asks for another one. Logged out: the entry is the only way in.
    NOTE: layout lives here (not inline) so the cloud-on hide rule can win — an
    inline `display` would override these stylesheet rules. */
 #c-key-entry { display: flex; gap: 8px; align-items: center; }
-#c-logout { display: none; }
-body.cloud-on #c-logout { display: inline-flex; }
 body.cloud-on #c-key-entry,
 body.cloud-on .c-key-label,
 body.cloud-on .c-key-hint { display: none; }
+body.cloud-on.ws-adding #c-key-entry { display: flex; }
+body.cloud-on.ws-adding .c-key-label { display: block; }
+body.cloud-on.ws-adding .c-key-hint { display: block; }
+body.cloud-on.ws-adding #c-ws-add { background: var(--chip-bg); border-color: var(--accent); }
+.ws-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .c-status {
   font-size: 12.5px; padding: 8px 12px; border-radius: var(--radius-md); background: var(--chip-bg); color: var(--muted);
 }
