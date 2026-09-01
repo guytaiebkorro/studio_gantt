@@ -6,7 +6,7 @@
 // the toolbar, editor, cloud panel, etc.); this file then performs first-run
 // setup and starts the app.
 // ---------------------------------------------------------------------------
-import { $, chartPane } from "./dom.js";
+import { $, chartPane, toast } from "./dom.js";
 import { S, supportsFS } from "./state.js";
 import { dateToX, today } from "./dates.js";
 import { render } from "./render/index.js";
@@ -17,6 +17,7 @@ import { closeGroupEditor } from "./ui/groupEditor.js";
 import { cloudConnected, flushSave, refreshOnActivate } from "./sync.js";
 import { initCloudConfig, connect, openCloud, updateCloudUI, closeCloud } from "./boards.js";
 import { save } from "./persistence.js";
+import { consumeShareToken } from "./share.js";
 import "./ui/interactions.js"; // ensure its top-level wiring runs
 
 // --- window-level shortcuts & lifecycle ---
@@ -59,7 +60,21 @@ function init() {
   updateCloudUI();
   updateViewButtons();
   updateModeButtons(); // restore the saved gantt/tasks view before first render
-  if (cloudConnected()) {
+
+  // A share link wins over whatever this browser remembers: the recipient asked
+  // for THAT workspace. It's saved to their switcher on success, so the link is
+  // only needed once. (The token is stripped from the URL as it's read.)
+  const shared = consumeShareToken();
+  if (shared) {
+    connect(shared.apiKey, { registryId: shared.registryId, binId: shared.binId, name: shared.name, viewOnly: shared.viewOnly })
+      .then(ok => {
+        if (ok) toast(shared.viewOnly
+          ? `Opened “${S.workspaceName}” — view only`
+          : `Opened “${S.workspaceName}” from a shared link ✓`);
+        else openCloud(); // bad or revoked key — connect() explained why
+      })
+      .finally(() => { $("loading").classList.remove("show"); });
+  } else if (cloudConnected()) {
     // a key is remembered — connect (discover + load) behind the loading veil.
     // connect() lifts the gate on success; on failure it surfaces an error and
     // we pop the gated panel so the user can re-enter a valid Master Key.

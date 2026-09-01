@@ -6,11 +6,15 @@
   padding: 10px 14px; background: var(--panel);
   border-bottom: 1px solid var(--border); box-shadow: var(--shadow); z-index: 30;
 }
-#toolbar .title {
+/* The workspace button IS the app title — it sits where a product name would,
+   because which workspace you're in matters more than being told this is a
+   Gantt app. Styled as display type rather than a toolbar pill. */
+#toolbar .title-btn {
   font-family: var(--font-display); font-weight: 600; font-size: 17px; margin-right: 6px;
   color: var(--accent); letter-spacing: .01em;
-  display: inline-flex; align-items: center; gap: 7px;
+  gap: 7px; padding: 0 10px 0 6px; border-color: transparent; background: transparent;
 }
+#toolbar .title-btn:hover { background: var(--btn-hover); border-color: var(--border-strong); }
 #toolbar .title-logo { display: block; border-radius: 6px; }
 #toolbar .spacer { flex: 1; }
 .board-select {
@@ -68,20 +72,28 @@ body.dirty .dirty-dot { display: inline-block; }
 }
 body.cloud-on .cloud-dot { background: var(--ok); }
 body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
-/* While the Cloud popup is gated (no valid key yet), only the key + Connect are
-   usable; hide board management and the auto-save note. */
-body.cloud-gated .cloud-board-controls { display: none; }
+/* The workspace name sits in the title slot — keep a long one from pushing the
+   toolbar around. */
+#cloud-label { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#toolbar .title-btn .cloud-dot { margin-left: 0; }
+/* While the Account popup is gated (no valid key yet), only the key + Connect
+   and the list of remembered workspaces are usable; hide the rest. */
+body.cloud-gated .cloud-board-controls,
+body.cloud-gated .ws-actions { display: none; }
 
-/* Connected: the key can't be changed inline — hide the entry + hint and show
-   "Log out & change key" instead. Logged out: the reverse.
+/* Connected: the key can't be changed inline — hide the entry + hint until
+   "Add workspace" asks for another one. Logged out: the entry is the only way in.
    NOTE: layout lives here (not inline) so the cloud-on hide rule can win — an
    inline `display` would override these stylesheet rules. */
 #c-key-entry { display: flex; gap: 8px; align-items: center; }
-#c-logout { display: none; }
-body.cloud-on #c-logout { display: inline-flex; }
 body.cloud-on #c-key-entry,
 body.cloud-on .c-key-label,
 body.cloud-on .c-key-hint { display: none; }
+body.cloud-on.ws-adding #c-key-entry { display: flex; }
+body.cloud-on.ws-adding .c-key-label { display: block; }
+body.cloud-on.ws-adding .c-key-hint { display: block; }
+body.cloud-on.ws-adding #c-ws-add { background: var(--chip-bg); border-color: var(--accent); }
+.ws-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .c-status {
   font-size: 12.5px; padding: 8px 12px; border-radius: var(--radius-md); background: var(--chip-bg); color: var(--muted);
 }

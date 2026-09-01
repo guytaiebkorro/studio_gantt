@@ -30,6 +30,9 @@ Because it's served over HTTPS from GitHub Pages, there's nothing to install and
 - **Israel work week** — weekend shading on **Friday–Saturday**, weeks start Sunday.
 - **Fast edits** — instant delete with an **Undo** toast (no confirm dialogs).
 - A **loading veil** covers startup so you never see placeholder data flash before the cloud loads.
+- **Named workspaces** — connect several JSONBin accounts and switch between them; the active
+  workspace's name is the app's title, top-left in the toolbar.
+- **Share links** — one link that opens a workspace with no key to paste, in view-only or edit mode.
 
 ---
 
@@ -53,12 +56,56 @@ from the browser using an embedded key, so **there are no per-user logins**.
 - **Last board remembered** — the board you were on is stored in your browser and reopened next time;
   if it was deleted, it falls back to the first available board.
 
+### Workspaces
+A **workspace** is one JSONBin account: the Master Key you paste, plus the **registry bin** that
+key unlocks. The registry holds the workspace's name and its list of boards, so the name follows
+the workspace to every device and every person who opens it.
+
+The workspace name **is** the app's title: it sits at the top-left of the toolbar, with the sync dot
+beside it, so which workspace you're in is always visible. Click it to:
+- **Rename** the workspace (default: `Workspace`). Saved into the registry bin.
+- **Switch workspace** — every account you've connected in this browser is listed; one click switches.
+- **Add workspace** — paste another Master Key. Its boards are discovered and it joins the list.
+- **Remove this workspace** — forgets that key *in this browser only*; the account and its boards are
+  untouched. Falls back to your most recently used workspace, or re-gates if it was the last one.
+- **Log out of all** — forget every key on this browser.
+
+Keys are remembered per browser in `localStorage`, keyed by registry id, so re-pasting a key you
+already have updates that workspace instead of duplicating it.
+
+### Share links
+The Workspace panel offers **Copy view-only link** and **Copy edit link**. Both produce a URL that
+carries the workspace key in the URL **fragment**:
+
+```
+https://…/index.html#w1.<base64url({ k: key, r: registryId, b: boardId, n: name, p: "view"|"edit" })>
+```
+
+Opening one connects immediately and lands on the same board the sender was on — no key prompt. The
+workspace is then saved to the recipient's switcher, so the link is only needed once. The fragment is
+stripped from the address bar as soon as it's read, and fragments are never sent to the server, so
+the key stays out of hosting logs and `Referer` headers.
+
+**View-only links** open with editing switched off and the lock button unable to open it, and that
+sticks across reloads (it's stored with the workspace). Typing the key in yourself always grants
+editing — whoever holds the key is an owner — which also promotes a workspace first opened from a
+view-only link. A view-only session can hand out further view-only links but not edit links.
+
+⚠️ **View-only is an accident guard, not a permission.** A JSONBin Master Key is account-wide and
+can't be scoped, so the key rides in *both* kinds of link. View-only stops a stakeholder from nudging
+a bar by mistake; it does not stop anyone who reads the key out of the link and calls the API. Real
+read-only sharing would need a backend with server-side roles. `base64url` is encoding for URL
+safety, not encryption. Treat every link like a password; to revoke, rotate the key in JSONBin.
+
 ### Boards
-Multiple boards are supported, indexed in a small **registry bin**. Use the toolbar:
-- **Board dropdown** — switch between boards.
+Within a workspace, multiple boards are supported, indexed in that workspace's registry bin:
+- **Board dropdown** (toolbar) — switch between boards.
 - **＋ Board** — create a new (empty) board; it's named and added to the registry.
-- **☁ Cloud panel** — **Rename** or **Delete** the current board, **Load now** (manual reload), or
-  point at any **Bin ID** directly.
+- **Workspace panel** — **New board**, **Rename board**, and **Save now**.
+
+Boards can't be deleted from the app: deletion is unrecoverable (there's no version
+history to restore from) and a shared board would disappear under your teammates with no
+undo. Rename a board you're done with, or delete its bin in the JSONBin dashboard.
 
 ---
 
@@ -66,12 +113,15 @@ Multiple boards are supported, indexed in a small **registry bin**. Use the tool
 
 This is a lightweight, no-backend tool. The trade-offs that come with that:
 
-1. **The JSONBin key is public.** Because the app is hosted on a public GitHub Pages site, the
-   embedded key ships in `index.html` and is readable by **anyone who visits the page or views
-   source**. Whoever has it can read/write (and, with a master key, delete) the data.
-   - **Recommended:** use a **scoped JSONBin Access Key** (limited to Read + Update + Create on these
-     bins) instead of the account **Master Key**, so a leak can't nuke your whole JSONBin account.
-   - Treat the board as **not private** — anyone with the URL can find and edit it.
+1. **The key is the only credential — and it can't be scoped.** Nothing is embedded in the page: the
+   app is gated until you paste a **Master Key**, and it's kept only in your browser. But JSONBin
+   Master Keys are account-wide (an Access Key can't list bins, so discovery wouldn't work), which
+   means:
+   - There is **no enforceable read-only share and no per-board share**. Anyone you give the key —
+     or any **share link**, view-only included — to can technically read, edit and delete every board
+     in that workspace. A view-only link switches the UI off, which prevents accidents, not intent.
+   - A leaked key exposes the whole JSONBin account, not just this app's bins.
+   - **To revoke access, rotate the key in JSONBin.** Removing a workspace only forgets it locally.
    - If you need real privacy/auth, you'd need a proper backend (out of scope here).
 2. **No live updates by default.** Background polling is **off** (`POLL_ENABLED = false`) to stay
    within JSONBin's free tier. You see teammates' changes when you hit **🔄 Refresh**, reload, or on
@@ -82,8 +132,9 @@ This is a lightweight, no-backend tool. The trade-offs that come with that:
 4. **Same-field conflicts are last-write-wins.** The 3-way merge protects *different* items/fields,
    but if two people edit the exact same field within the same save window, one value wins. It's
    "mostly in sync," not a real-time CRDT.
-5. **Per-browser memory.** Your last board, and any local settings, live in that browser's
-   `localStorage` — they don't follow you across machines.
+5. **Per-browser memory.** Your workspaces (and their keys), your last board, and any local settings
+   live in that browser's `localStorage` — they don't follow you across machines. A share link is the
+   way to carry a workspace to another machine or person.
 
 ---
 
@@ -100,7 +151,9 @@ src/
   merge.js              the 3-way merge (pure, backend-agnostic)
   theme.js              dark / light toggle
   sync.js               autosave, polling, refresh, merge-on-save
-  boards.js             board registry, switcher, CRUD, cloud panel
+  boards.js             workspace + board switching, CRUD, the Workspace panel
+  workspaces.js         the device-local list of workspaces (localStorage)
+  share.js              share-link encode / consume + copy to clipboard
   persistence.js        local "save to file" fallback + JSON import/export
   backend/
     backend.js          ← the storage backend swap point
@@ -112,7 +165,8 @@ src/
 ## Swapping the backend
 
 The app talks to storage only through a small **`StorageBackend`** interface
-(`loadBoard` / `saveBoard` / `getRegistry` / `putRegistry` / `createBoardData` / `deleteBoardData`).
+(`loadBoard` / `saveBoard` / `getRegistry` / `putRegistry` / `createBoardData` / `deleteBoardData`,
+where the registry carries both the workspace's `name` and its `boards`).
 JSONBin is just one implementation, living entirely in `src/backend/jsonbin.js`. To use a different
 backend (a REST API, Supabase, localStorage, …): write a new class with those methods, then change
 the one line in `src/backend/backend.js` that picks the active backend. Conflict resolution
@@ -130,13 +184,17 @@ Behavior constants live in **`src/config.js`**:
 | `SAVE_IDLE_MS` | `2500` | Save this long after your last edit. |
 | `SAVE_MAX_MS` | `15000` | Force a save at least this often during continuous editing. |
 
-JSONBin-specific settings live in **`src/backend/jsonbin.js`**:
+| `DEFAULT_WORKSPACE_NAME` | `"Workspace"` | Name given to a workspace whose registry has none yet. |
 
-| Constant | Default | Meaning |
-|---|---|---|
-| `DEFAULT_KEY` | *(embedded)* | JSONBin key the app uses. Swap the master key for a scoped access key here. |
-| `DEFAULT_BOARD_ID` | `6a38fcb4…` | The default board bin. |
-| `DEFAULT_REGISTRY_ID` | `6a390a19…` | The bin holding the list of boards. |
+No credentials are configured in code — the key is pasted at runtime and lives only in the browser.
+What's kept there:
+
+| `localStorage` key | Holds |
+|---|---|
+| `gantt_workspaces_v1` | `{ activeId, list: [{ id, apiKey, name, binId, viewOnly, lastUsed }] }` — every workspace remembered on this device. |
+| `gantt_jsonbin_v1` | The pre-workspaces single-account config. Read once to migrate, then unused. |
+| `gantt_collapsed_v1` | Collapsed groups, per board. |
+| `gantt_theme_v1`, `gantt_viewtab_v1` | Theme and Gantt/Tasks view preference. |
 
 ---
 
@@ -157,7 +215,10 @@ Each board bin stores `{ "updatedAt": <ms>, "data": <board> }`, where the board 
 }
 ```
 
-The registry bin stores `{ "boards": [ { "id": "<binId>", "name": "Main" } ] }`.
+The registry bin *is* the workspace record:
+`{ "name": "Workspace", "boards": [ { "id": "<binId>", "name": "Main" } ] }`.
+Registries written before workspaces were named hold only `boards`; the app reads those as the
+default name and backfills it on the next connect.
 
 ---
 
