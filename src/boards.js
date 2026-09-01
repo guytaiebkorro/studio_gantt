@@ -6,7 +6,7 @@
 // All networking goes through the `backend` adapter — this file contains no
 // fetch calls, so it works unchanged against any backend.
 // ---------------------------------------------------------------------------
-import { CLOUD_KEY } from "./config.js";
+import { CLOUD_KEY, DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { $, esc, toast, chartPane, wireBackdropClose } from "./dom.js";
 import { S, clearDirty } from "./state.js";
 import { dateToX, today } from "./dates.js";
@@ -57,11 +57,11 @@ export async function connect(apiKey) {
     if (!regId) {
       // brand-new account → create an isolated workspace: registry + starter board
       setCloudStatus("Setting up a new workspace…", "");
-      const { id: newReg } = await backend.createRegistry([]);
+      const { id: newReg } = await backend.createRegistry(DEFAULT_WORKSPACE_NAME, []);
       backend.registryId = newReg;
       const empty = { version: 1, settings: { viewMode: S.state.settings.viewMode || "week" }, groups: [], tasks: [] };
       const { id: boardId } = await backend.createBoardData("My Board", empty);
-      await backend.putRegistry([{ id: boardId, name: "My Board" }]);
+      await backend.putRegistry(DEFAULT_WORKSPACE_NAME, [{ id: boardId, name: "My Board" }]);
       regId = newReg; S.cloud.binId = boardId;
     }
     S.cloud.registryId = regId; backend.registryId = regId; persistCloud();
@@ -93,17 +93,23 @@ export async function connect(apiKey) {
   }
 }
 
-// --- board registry ---
+// --- workspace registry (its name + its boards) ---
 export async function loadRegistry() {
   if (!cloudConnected()) return;
   try {
-    S.registry = await backend.getRegistry();
+    const reg = await backend.getRegistry();
+    S.registry = reg.boards;
+    // A registry written before workspaces were named has no name. Adopt the
+    // default locally and backfill it remotely, once, so every device and every
+    // share-link recipient sees the same name from here on.
+    if (reg.name) S.workspaceName = reg.name;
+    else { S.workspaceName = DEFAULT_WORKSPACE_NAME; try { await saveRegistry(); } catch (_) {} }
   } catch (err) {
     console.warn("registry load failed:", err.message);
   }
   renderBoardSelect();
 }
-async function saveRegistry() { await backend.putRegistry(S.registry); }
+async function saveRegistry() { await backend.putRegistry(S.workspaceName, S.registry); }
 
 export function renderBoardSelect() {
   const sel = $("board-select");

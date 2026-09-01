@@ -57,17 +57,24 @@ export class JsonBinBackend {
     return { updatedAt: payload.updatedAt };
   }
 
-  // GET the registry of boards; returns [{ id, name }] (empty array if missing).
+  // GET the workspace registry; returns { name, boards }.
+  // Registries written before workspaces were named hold only { boards }; those
+  // read back with an empty name, which the caller renders as the default and
+  // backfills on connect.
   async getRegistry() {
     const res = await fetch(`${this.base}/b/${this.registryId}/latest`, { headers: this.headers() });
     if (!res.ok) throw new Error(await this.errText(res));
     const body = await res.json();
-    return (body.record && Array.isArray(body.record.boards)) ? body.record.boards : [];
+    const rec = body.record || {};
+    return {
+      name: typeof rec.name === "string" ? rec.name : "",
+      boards: Array.isArray(rec.boards) ? rec.boards : []
+    };
   }
 
-  // PUT the registry of boards.
-  async putRegistry(boards) {
-    const res = await fetch(`${this.base}/b/${this.registryId}`, { method: "PUT", headers: this.headers(), body: JSON.stringify({ boards }) });
+  // PUT the workspace registry (its name and its list of boards).
+  async putRegistry(name, boards) {
+    const res = await fetch(`${this.base}/b/${this.registryId}`, { method: "PUT", headers: this.headers(), body: JSON.stringify({ name, boards }) });
     if (!res.ok) throw new Error(await this.errText(res));
   }
 
@@ -118,12 +125,12 @@ export class JsonBinBackend {
     return null;
   }
 
-  // Create a fresh registry bin holding `boards`; returns { id }.
-  async createRegistry(boards) {
+  // Create a fresh registry bin holding `name` + `boards`; returns { id }.
+  async createRegistry(name, boards) {
     const res = await fetch(`${this.base}/b`, {
       method: "POST",
       headers: Object.assign(this.headers(), { "X-Bin-Name": "gantt-registry", "X-Bin-Private": "true" }),
-      body: JSON.stringify({ boards })
+      body: JSON.stringify({ name, boards })
     });
     if (!res.ok) throw new Error(await this.errText(res));
     const body = await res.json();

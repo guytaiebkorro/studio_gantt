@@ -38,8 +38,12 @@ export const SAVE_MAX_MS = 15000;   // ...but force a save at least this often d
 export const POLL_MS = 5000;
 export const POLL_ENABLED = false;
 
+// Name shown for a workspace whose registry has none yet (pre-workspace bins).
+export const DEFAULT_WORKSPACE_NAME = "Workspace";
+
 // localStorage keys.
 export const THEME_KEY = "gantt_theme_v1";
 export const COLLAPSE_KEY = "gantt_collapsed_v1";
-export const CLOUD_KEY = "gantt_jsonbin_v1";
+export const CLOUD_KEY = "gantt_jsonbin_v1";        // legacy single-workspace config; read once to migrate
+export const WORKSPACES_KEY = "gantt_workspaces_v1"; // { activeId, list: [{ id, apiKey, name, binId, lastUsed }] }
 export const VIEWTAB_KEY = "gantt_viewtab_v1";

@@ -6,7 +6,7 @@
 // file, so all mutable state now lives as PROPERTIES of one shared object `S`.
 // Modules read/write `S.foo`; the live object is the single source of truth.
 // ---------------------------------------------------------------------------
-import { VIEW, COLLAPSE_KEY, VIEWTAB_KEY, COLORS } from "./config.js";
+import { VIEW, COLLAPSE_KEY, VIEWTAB_KEY, COLORS, DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { scheduleCloudSave } from "./sync.js";
 import { render } from "./render/index.js";
 import { updateViewButtons } from "./ui/toolbar.js";
@@ -41,7 +41,9 @@ export const S = {
   // --- cloud runtime (configured by boards.js at startup) ---
   cloud: null,                 // { apiKey, binId, registryId } — credentials + board + discovered registry
   cloudGate: true,             // true until a valid key connects; gates the non-dismissable Cloud popup
-  registry: [],                // [{ id, name }] list of boards
+  registry: [],                // [{ id, name }] list of boards in the active workspace
+  workspaceName: DEFAULT_WORKSPACE_NAME, // active workspace's name (authoritative copy lives in its registry bin)
+  workspaces: [],              // [{ id, apiKey, name, binId, lastUsed }] every workspace remembered on this device
   loadedAt: 0,                 // updatedAt of the remote version our state descends from
   baseState: null,             // common ancestor for 3-way merge
   pollTimer: null,
