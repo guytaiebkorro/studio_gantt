@@ -236,11 +236,15 @@ async function renameBoard() {
 // The workspace button sits in the toolbar's title slot — the workspace you're
 // in is more useful there than the app's own name. Its tooltip also carries the
 // sync state, which setSync() refreshes through here.
+//
+// The browser tab is named the same way, so several workspaces open side by side
+// are tellable apart from the tab strip alone.
 export function updateWorkspaceButton() {
   const conn = cloudConnected() && !S.cloudGate;
   const name = S.workspaceName || DEFAULT_WORKSPACE_NAME;
   const label = $("cloud-label");
   if (label) label.textContent = conn ? name : "Account";
+  document.title = conn ? (S.viewOnly ? `${name} (view only)` : name) : "Gantt";
   $("cloud-btn").title = (conn ? `Workspace: ${name}` : "Account & cloud sync") + ` — sync: ${S.syncState}`;
 }
 
