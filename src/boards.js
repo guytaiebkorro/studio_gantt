@@ -429,7 +429,7 @@ $("c-ws-list").addEventListener("click", (e) => {
   if (forget) {
     e.stopPropagation();
     const id = forget.dataset.forget;
-    if (id === (S.cloud.registryId || getActiveId())) { removeActiveWorkspace(); return; }
+    if (id && id === (S.cloud.registryId || getActiveId())) { removeActiveWorkspace(); return; }
     const w = findWorkspace(id);
     if (!w || !confirm(`Remove “${w.name || DEFAULT_WORKSPACE_NAME}” from this browser?`)) return;
     forgetWorkspace(id); renderWorkspaceList();

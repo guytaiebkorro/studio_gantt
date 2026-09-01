@@ -204,6 +204,15 @@
           <button class="btn danger" id="c-logout-all">Log out of all</button>
         </div>
       </div>
+      <div class="cloud-board-controls">
+        <label>Share this workspace</label>
+        <button class="btn" id="c-share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Copy share link</button>
+        <div class="hint">
+          Opens this board with no key to paste. The link <b>contains the workspace key</b>, so anyone who
+          has it gets full access to every board here — including editing and deleting. JSONBin keys can’t be
+          limited to read-only or to one board, so share it like a password.
+        </div>
+      </div>
       <div class="cloud-board-controls" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button class="btn" id="c-savenow">Save now</button>
         <button class="btn" id="c-create">New board</button>
