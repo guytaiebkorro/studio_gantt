@@ -236,3 +236,23 @@ body.panel-open .ws-panel { transform: translateX(0); }
 }
 .wp-seg:focus-visible { outline: none; box-shadow: var(--glow-accent); }
 .wp-note { margin: 0; font-size: 12.5px; color: var(--muted); min-height: 1.5em; }
+
+/* ---------- workspace overflow menu ---------- */
+.wp-more { opacity: 0; font-size: 14px; }
+.wp-ws-head:hover .wp-more, .wp-more:focus-visible { opacity: 1; }
+.wp-menu {
+  position: absolute; top: calc(100% - 4px); right: 6px; z-index: 5;
+  min-width: 176px; padding: 4px;
+  background: var(--modal-bg);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+}
+.wp-menu-item {
+  display: block; width: 100%; text-align: left;
+  font: inherit; font-size: 13px; color: var(--text);
+  background: none; border: none; cursor: pointer;
+  padding: 9px 10px; border-radius: var(--radius-sm);
+}
+.wp-menu-item:hover { background: var(--hover); }
+.wp-menu-item.danger { color: var(--danger); }
+.wp-menu-item.danger:hover { background: var(--danger-bg); }

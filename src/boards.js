@@ -459,6 +459,8 @@ wirePanel({
     await switchBoard(boardId);
     renderPanel();
   },
+  onCommitRenameWorkspace: async (name) => { await renameWorkspace(name); renderPanel(); },
+  onLeaveWorkspace: () => leaveForGood(),
   onNewBoard: () => beginNewBoard(),
   onCommitNewBoard: async (name) => { await newBoard(name); renderPanel(); },
   onRenameBoard: (boardId) => beginRenameBoard(boardId),

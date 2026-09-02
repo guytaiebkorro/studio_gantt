@@ -91,6 +91,12 @@ function onWorkspacesClick(e) {
   // Per-board icons first, and stop there: without this the click would bubble
   // to the row and also switch board, so renaming would navigate away from
   // whatever you were looking at.
+  const more = e.target.closest(".wp-more");
+  if (more) {
+    e.stopPropagation();
+    openWorkspaceMenu(more);
+    return;
+  }
   const icon = e.target.closest(".wp-icon");
   if (icon) {
     e.stopPropagation();
@@ -228,6 +234,9 @@ function renderWorkspaces() {
           `<span class="wp-chev" aria-hidden="true">${active ? "▾" : "▸"}</span>` +
           `<span class="wp-ws-name">${esc(m.name || m.wsId)}</span>` +
           `<span class="wp-role role-${esc(role)}">${esc(role)}</span>` +
+          // Rare and destructive actions live behind a menu on the ACTIVE row
+          // only, keeping them out of the main flow.
+          (active ? `<button class="wp-icon wp-more" type="button" title="Workspace options" aria-label="Workspace options">⋯</button>` : "") +
         `</div>` +
         (active ? renderBoards() : "") +
       `</div>`;
@@ -255,6 +264,66 @@ function renderBoards() {
     }).join("") +
     (mayEdit ? `<button class="wp-add wp-newboard" type="button">＋ New board</button>` : "") +
   `</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Workspace overflow menu.
+//
+// Rename is admin-only, because the name lives on the workspace document and
+// firestore.rules grants `name` to admins while granting `boards` to editors.
+//
+// Leave is offered to everyone EXCEPT admins. An admin removing themselves
+// could leave a workspace nobody can manage, so the rules refuse it and this
+// routes through tools/admin instead — better than offering a button that fails.
+// ---------------------------------------------------------------------------
+function closeMenu() {
+  const m = document.querySelector(".wp-menu");
+  if (m) m.remove();
+  document.removeEventListener("click", onDocClickCloseMenu, true);
+}
+
+function onDocClickCloseMenu(e) {
+  if (e.target.closest(".wp-menu") || e.target.closest(".wp-more")) return;
+  closeMenu();
+}
+
+function openWorkspaceMenu(anchor) {
+  closeMenu();
+  const items = [];
+  if (isAdmin()) items.push(`<button class="wp-menu-item" type="button" data-act="rename-ws">Rename workspace</button>`);
+  else items.push(`<button class="wp-menu-item danger" type="button" data-act="leave-ws">Leave workspace</button>`);
+
+  const menu = document.createElement("div");
+  menu.className = "wp-menu";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = items.join("");
+  anchor.closest(".wp-ws-head").appendChild(menu);
+
+  menu.addEventListener("click", (e) => {
+    const item = e.target.closest(".wp-menu-item");
+    if (!item) return;
+    e.stopPropagation();
+    const act = item.dataset.act;
+    closeMenu();
+    if (act === "rename-ws") beginRenameWorkspace();
+    if (act === "leave-ws" && handlers.onLeaveWorkspace) handlers.onLeaveWorkspace();
+  });
+
+  // Capture phase, so this sees the click before anything re-renders the tree
+  // out from under it.
+  document.addEventListener("click", onDocClickCloseMenu, true);
+}
+
+export function beginRenameWorkspace() {
+  const head = $("wp-workspaces").querySelector(".wp-ws.active .wp-ws-head");
+  if (!head) return;
+  const field = inlineField(S.workspaceName || "", (name) => {
+    if (handlers.onCommitRenameWorkspace) handlers.onCommitRenameWorkspace(name);
+  });
+  field.setAttribute("aria-label", "Workspace name");
+  head.replaceWith(field);
+  field.focus();
+  field.select();
 }
 
 // ---------------------------------------------------------------------------

@@ -423,4 +423,53 @@ ck("editor has no admin segment at all",
    !!document.querySelector('#invite-roles [data-role="admin"]'), false);
 panel.closeInvite();
 
+// --- T8: workspace overflow menu (rename / leave) -------------------------
+await setup("admin");
+let renamedWs = null, left = null;
+panel.wirePanel(peopleHandlers({
+  onCommitRenameWorkspace: (name) => { renamedWs = name; },
+  onLeaveWorkspace: () => { left = true; }
+}));
+panel.renderPanel();
+
+ck("only the active workspace gets a menu button",
+   document.querySelectorAll("#wp-workspaces .wp-more").length, 1);
+ck("...and it is on the active row",
+   !!document.querySelector("#wp-workspaces .wp-ws.active .wp-more"), true);
+
+document.querySelector(".wp-more").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("menu opens", !!document.querySelector(".wp-menu"), true);
+ck("admin is offered Rename", !!document.querySelector("[data-act='rename-ws']"), true);
+// An admin leaving could strand the workspace with nobody able to manage it, so
+// the rules refuse it and the menu doesn't pretend otherwise.
+ck("admin is NOT offered Leave", !!document.querySelector("[data-act='leave-ws']"), false);
+
+document.querySelector("[data-act='rename-ws']").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const wsField = document.querySelector(".wp-inline");
+ck("rename opens an inline field seeded with the name", wsField.value, "Game Dev");
+wsField.value = "Game Development";
+wsField.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+await sleep(40);
+ck("workspace rename commits", renamedWs, "Game Development");
+
+// A viewer can leave, and cannot rename.
+await setup("viewer");
+panel.wirePanel(peopleHandlers({ onLeaveWorkspace: () => { left = true; } }));
+panel.renderPanel();
+document.querySelector(".wp-more").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("viewer is offered Leave", !!document.querySelector("[data-act='leave-ws']"), true);
+ck("viewer is NOT offered Rename", !!document.querySelector("[data-act='rename-ws']"), false);
+left = null;
+document.querySelector("[data-act='leave-ws']").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("leave reports through the callback", left, true);
+
+// The menu must not leak: clicking elsewhere closes it.
+await setup("admin");
+panel.wirePanel(peopleHandlers());
+panel.renderPanel();
+document.querySelector(".wp-more").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+await sleep(40);
+ck("clicking away closes the menu", !!document.querySelector(".wp-menu"), false);
+
 rep("__DONE__");
