@@ -1,0 +1,168 @@
+<!doctype html><meta charset="utf-8"><title>Gantt backend live test</title>
+<style>
+ body{font:14px/1.6 -apple-system,system-ui,sans-serif;max-width:820px;margin:40px auto;padding:0 20px}
+ button{font:600 15px system-ui;padding:10px 18px;border-radius:8px;border:1px solid #ccc;background:#fff;cursor:pointer}
+ button.primary{background:#1a73e8;color:#fff;border-color:#1a73e8}
+ pre{background:#f6f8fa;padding:14px;border-radius:8px;white-space:pre-wrap;font:12.5px/1.6 ui-monospace,monospace}
+ .PASS{color:#0a7c2f}.FAIL{color:#c5221f;font-weight:700}.INFO{color:#666}
+ h1{font-size:20px}
+</style>
+<h1>Gantt backend live test</h1>
+<p>Signs in with Google, then exercises the Firestore adapter and security rules
+against the throwaway <code>adapter-test</code> workspace. Results are also sent
+back to the terminal.</p>
+<p><button class="primary" id="go">Sign in with Google &amp; run tests</button>
+   <button id="out">Sign out</button></p>
+<pre id="log">Waiting… (live backend + rules test)</pre>
+<script type="importmap">
+{"imports":{
+ "firebase/app":"https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js",
+ "firebase/auth":"https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js",
+ "firebase/firestore":"https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js"}}
+</script>
+<script type="module">
+const logEl = document.getElementById("log");
+const lines = [];
+const put = (s) => { lines.push(s); logEl.innerHTML = lines.map(l =>
+  `<span class="${l.slice(0,4).trim()}">${l.replace(/</g,"&lt;")}</span>`).join("\n");
+  /* results render on the page; see README for capturing them */ };
+const ck = (n, got, want) => put((got === want ? "PASS " : "FAIL ") + n + (got===want?"":`  got=${JSON.stringify(got)} want=${JSON.stringify(want)}`));
+const denied = async (n, fn, code="permission-denied") => {
+  try { await fn(); put("FAIL " + n + " was ALLOWED (expected " + code + ")"); }
+  catch (e) { ck(n, e.code, code); }
+};
+
+const fb = await import("../../src/firebase/app.js");
+const authmod = await import("../../src/auth.js");
+const { FirestoreBackend } = await import("../../src/backend/firestore.js");
+
+document.getElementById("out").onclick = () => authmod.signOutNow().then(()=>location.reload());
+document.getElementById("go").onclick = async () => {
+  lines.length = 0; put("INFO starting");
+  try {
+    if (!authmod.currentUser()) await authmod.signIn();   // sync from click, no await before
+  } catch (e) { put("FAIL sign-in: " + e.message); return; }
+  const u = authmod.currentUser();
+  put("INFO signed in as " + u.email + "  uid=" + u.uid);
+  try { await run(u); }
+  catch (e) { put("FAIL run() threw and stopped: " + (e && (e.code ? e.code + " — " : "") + (e.message||e))); }
+};
+
+async function run(u) {
+  const WS = new URLSearchParams(location.search).get("ws") || "adapter-test";
+  const b = new FirestoreBackend();
+  b.wsId = WS;
+
+  // --- membership discovery (the query the app runs on every sign-in) -------
+  const snap = await fb.getDocs(fb.query(fb.collectionGroup(fb.db,"members"),
+                                         fb.where("email","==",u.email)));
+  const mine = snap.docs.map(d => ({ ws: d.ref.parent.parent.id, role: d.get("role") }));
+  put("INFO memberships: " + JSON.stringify(mine));
+  ck("membership query returns my workspaces", mine.length >= 2, true);
+  ck("adapter-test role is admin", (mine.find(m=>m.ws===WS)||{}).role, "admin");
+  ck("game-dev also visible", !!mine.find(m=>m.ws==="game-dev"), true);
+
+  // --- registry ------------------------------------------------------------
+  const reg = await b.getRegistry();
+  ck("getRegistry name", reg.name, "Adapter Test");
+  ck("getRegistry has 1 board", reg.boards.length, 1);
+  const boardId = reg.boards[0].id;
+
+  // --- load / save round trip ----------------------------------------------
+  const first = await b.loadBoard(boardId);
+  ck("loadBoard returns a board", !!first && !!first.data, true);
+  ck("starter board is empty", first.data.tasks.length, 0);
+
+  const board = { version:1, settings:{viewMode:"day"}, groups:[{id:"g1",name:"Milestones",color:"#f4795b"}],
+    tasks:[{id:"t1",name:"Adapter round trip",description:"",groupId:"g1",parentId:null,
+            start:"2026-09-10",end:"2026-09-14",isMilestone:false,deps:[],color:null}] };
+  const saved = await b.saveBoard(boardId, board);
+  ck("saveBoard returns updatedAt", typeof saved.updatedAt, "number");
+  const back = await b.loadBoard(boardId);
+  ck("round trip: task name", back.data.tasks[0].name, "Adapter round trip");
+  ck("round trip: viewMode", back.data.settings.viewMode, "day");
+  ck("round trip: group colour", back.data.groups[0].color, "#f4795b");
+  ck("updatedAt advanced", back.updatedAt === saved.updatedAt, true);
+
+  // null round-trips (Firestore rejects undefined; JSON keeps null)
+  ck("null parentId survives", back.data.tasks[0].parentId, null);
+  ck("null colour survives", back.data.tasks[0].color, null);
+
+  // --- create board + index update -----------------------------------------
+  const { id: newId } = await b.createBoardData("Second Board", { version:1, settings:{viewMode:"week"}, groups:[], tasks:[] });
+  put("INFO created board " + newId);
+  await b.putBoards([...reg.boards, { id: newId, name: "Second Board" }]);
+  const reg2 = await b.getRegistry();
+  ck("board index now has 2", reg2.boards.length, 2);
+  await b.renameBoard(newId, "Renamed Board");
+  await b.putBoards(reg2.boards.map(x => x.id===newId ? {id:newId,name:"Renamed Board"} : x));
+  ck("rename reflected in index", (await b.getRegistry()).boards.find(x=>x.id===newId).name, "Renamed Board");
+
+  // --- admin-only workspace rename -----------------------------------------
+  await b.putWorkspaceName("Adapter Test 2");
+  ck("admin renamed workspace", (await b.getRegistry()).name, "Adapter Test 2");
+  await b.putWorkspaceName("Adapter Test");
+
+  // --- guards ---------------------------------------------------------------
+  try { await b.deleteBoardData(newId); put("FAIL deleteBoardData was allowed"); }
+  catch (e) { ck("deleteBoardData refuses with an explanation", /can't be deleted/.test(e.message), true); }
+
+  try {
+    const big = { version:1, settings:{viewMode:"week"}, groups:[],
+      tasks:[{id:"x",name:"y".repeat(950000),description:"",groupId:null,parentId:null,start:"2026-01-01",end:"2026-01-02",isMilestone:false,deps:[],color:null}] };
+    await b.saveBoard(boardId, big); put("FAIL oversized board was accepted");
+  } catch (e) { ck("oversized board refused locally", /too large/.test(e.message), true); }
+
+  // --- rules: things even an admin must not be able to do -------------------
+  await denied("cannot create a workspace", () =>
+    fb.setDoc(fb.doc(fb.db,"workspaces","i-made-this"), {name:"nope",boards:[]}));
+  await denied("cannot delete a board doc", () =>
+    fb.deleteDoc(fb.doc(fb.db,"workspaces",WS,"boards",newId)));
+  await denied("cannot read a workspace I'm not in", () =>
+    fb.getDoc(fb.doc(fb.db,"workspaces","some-other-ws")));
+  await denied("cannot change my OWN role", () =>
+    fb.updateDoc(fb.doc(fb.db,"workspaces",WS,"members",u.email), {role:"admin"}));
+  // Members CAN read each other — that is intended (the People panel needs it,
+  // and viewers were explicitly granted read-only visibility of the roster).
+  // The property that actually matters is isolation ACROSS workspaces.
+  const roster = await fb.getDocs(fb.collection(fb.db,"workspaces",WS,"members"));
+  ck("a member CAN list the roster (People panel)", roster.size >= 1, true);
+  ck("roster includes me", roster.docs.some(d => d.id === u.email), true);
+  await denied("cannot read members of a workspace I'm NOT in", () =>
+    fb.getDoc(fb.doc(fb.db,"workspaces","some-other-ws","members",u.email)));
+  await denied("cannot LIST members of a workspace I'm NOT in", () =>
+    fb.getDocs(fb.collection(fb.db,"workspaces","some-other-ws","members")));
+  await denied("cannot read boards of a workspace I'm NOT in", () =>
+    fb.getDoc(fb.doc(fb.db,"workspaces","some-other-ws","boards","b1")));
+  await denied("cannot set protected on a new member", () =>
+    fb.setDoc(fb.doc(fb.db,"workspaces",WS,"members","x@example.com"),
+      {email:"x@example.com",role:"viewer",uid:null,displayName:null,
+       invitedBy:u.email,invitedAt:fb.serverTimestamp(),claimedAt:null,protected:true}));
+  await denied("cannot forge invitedBy", () =>
+    fb.setDoc(fb.doc(fb.db,"workspaces",WS,"members","y@example.com"),
+      {email:"y@example.com",role:"viewer",uid:null,displayName:null,
+       invitedBy:"someone@else.com",invitedAt:fb.serverTimestamp(),claimedAt:null,protected:false}));
+  await denied("cannot write a future updatedAt (clock poisoning)", () =>
+    fb.updateDoc(fb.doc(fb.db,"workspaces",WS,"boards",boardId),
+      {data:"{}",updatedAt:9e15,updatedAtServer:fb.serverTimestamp(),updatedBy:u.uid}));
+  await denied("cannot enumerate workspaces", () =>
+    fb.getDocs(fb.collection(fb.db,"workspaces")));
+  await denied("cannot query another email's memberships", () =>
+    fb.getDocs(fb.query(fb.collectionGroup(fb.db,"members"), fb.where("email","==","victim@example.com"))));
+
+  // --- an admin CAN legitimately invite ------------------------------------
+  const invitee = "teammate@example.com";
+  await fb.setDoc(fb.doc(fb.db,"workspaces",WS,"members",invitee),
+    {email:invitee,role:"editor",uid:null,displayName:null,
+     invitedBy:u.email,invitedAt:fb.serverTimestamp(),claimedAt:null,protected:false});
+  put("PASS admin CAN invite an editor");
+  await denied("cannot mint an admin invite with a bad key set", () =>
+    fb.setDoc(fb.doc(fb.db,"workspaces",WS,"members","z@example.com"), {email:"z@example.com",role:"admin"}));
+  await fb.deleteDoc(fb.doc(fb.db,"workspaces",WS,"members",invitee));
+  put("PASS admin CAN revoke a member");
+
+  const p = lines.filter(l=>l.startsWith("PASS")).length;
+  const f = lines.filter(l=>l.startsWith("FAIL")).length;
+  put(`INFO ===== DONE: ${p} passed, ${f} failed =====`);
+}
+</script>

@@ -33,6 +33,47 @@
       document.documentElement.setAttribute("data-theme", "dark");
   } catch (_) {}
 </script>
+
+<!-- Firebase SDK, as native ES modules straight from Google's CDN. This is what
+     keeps the app buildless: no bundler, no node_modules, no deploy step beyond
+     `git push`.
+
+     THIS BLOCK IS THE SINGLE SOURCE OF TRUTH FOR THE SDK VERSION. All three
+     entries must stay on the SAME version: firebase-auth.js and
+     firebase-firestore.js each import firebase-app.js by absolute URL pinned to
+     their own version, so a mismatch loads firebase-app.js TWICE as two separate
+     module instances — initializeApp() registers on one, getAuth() reads the
+     other, and you get "No Firebase App '[DEFAULT]' has been created".
+
+     Never use "latest" here. With no lockfile, this is the only thing between
+     the app and a breaking CDN change. -->
+<script type="importmap">
+{
+  "imports": {
+    "firebase/app":       "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js",
+    "firebase/auth":      "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js"
+  }
+}
+</script>
+<script>
+  /* Import maps need Chrome/Edge 89+, Safari 16.4+, Firefox 108+. Without one,
+     the bare "firebase/*" specifiers above don't resolve, main.js never
+     evaluates, and the "Loading…" veil would sit there forever with no clue why.
+     Say so instead. (Feature-detect rather than sniff: HTMLScriptElement.supports
+     is itself newer than some targets, hence the existence check.) */
+  if (!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports("importmap"))) {
+    document.addEventListener("DOMContentLoaded", function () {
+      var veil = document.getElementById("loading");
+      if (!veil) return;
+      veil.style.padding = "0 32px";
+      veil.style.textAlign = "center";
+      veil.style.lineHeight = "1.7";
+      veil.innerHTML = "<div><b>This browser is too old to run this app.</b><br><br>" +
+        "Please use Chrome 89+, Edge 89+, Safari 16.4+ or Firefox 108+.</div>";
+    });
+  }
+</script>
 </head>
 <body>
 <div id="app">
