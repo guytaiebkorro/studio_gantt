@@ -36,8 +36,15 @@ function boardName() {
 
 // --- status indicators ---
 const cloudDot = document.querySelector("#cloud-btn .cloud-dot");
+// Transient status. Only ERRORS are surfaced now: the old modal's status line
+// also narrated "Loaded", "Saved", "3 boards", which the sync dot and the panel
+// itself already say. An error, though, would otherwise vanish entirely.
 export function setCloudStatus(msg, kind) {
-  const el = $("c-status"); el.textContent = msg; el.className = "c-status" + (kind ? (" " + kind) : "");
+  const el = $("wp-status");
+  if (!el) return;
+  const show = !!msg && kind === "err";
+  el.textContent = show ? msg : "";
+  el.hidden = !show;
 }
 export function setSync(s) {
   // dot color: grey idle, amber pending/syncing, green ok, red error

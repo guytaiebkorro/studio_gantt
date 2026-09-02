@@ -1,22 +1,22 @@
 // ---------------------------------------------------------------------------
 // The startup gate (#auth-overlay).
 //
-// A PURE VIEW. It renders one of five states and reports clicks through the
+// A PURE VIEW. It renders one of four states and reports clicks through the
 // callbacks handed to wireGate(). It imports only dom.js, which is what keeps
 // the import graph honest: session.js and boards.js both depend on this, and if
 // this module reached back into either of them we would gain a second cycle
 // alongside the load-bearing state -> sync -> boards one.
 //
-// It is also the ONE canonical workspace picker. The Workspace panel used to
-// carry a duplicate switcher list; it now has a single "Switch workspace…"
-// button that calls showGate("picker"). Deleting the duplicate is what let this
-// module stay a leaf.
+// It is NOT a workspace picker. The slide-over panel (ui/panel.js) is the app's
+// one and only workspace list, at startup and afterwards, so this module handles
+// exactly three states: sign in, you have no workspaces, and you don't have
+// access to the one you asked for.
 //
 // Non-dismissable on purpose: no close button, no wireBackdropClose, and
 // main.js's Escape handler does not name #auth-overlay. Signed out or with no
 // workspace, there is nothing behind it to look at.
 // ---------------------------------------------------------------------------
-import { $, esc } from "../dom.js";
+import { $ } from "../dom.js";
 
 const overlay = $("auth-overlay");
 const modal = overlay ? overlay.querySelector(".gate") : null;
@@ -33,26 +33,10 @@ export function wireGate(h) {
   $("gate-signout").addEventListener("click", () => { if (handlers.onSignOut) handlers.onSignOut(); });
   $("gate-refresh").addEventListener("click", () => { if (handlers.onRefresh) handlers.onRefresh(); });
   $("gate-copy-email").addEventListener("click", copyEmail);
-
-  for (const id of ["gate-ws-list", "gate-ws-list-2"]) {
-    const box = $(id);
-    if (!box) continue;
-    box.addEventListener("click", (e) => {
-      const row = e.target.closest(".ws-row");
-      if (row && handlers.onPick) handlers.onPick(row.dataset.id);
-    });
-    box.addEventListener("keydown", (e) => {
-      const row = e.target.closest(".ws-row");
-      if (row && (e.key === "Enter" || e.key === " ")) {
-        e.preventDefault();
-        if (handlers.onPick) handlers.onPick(row.dataset.id);
-      }
-    });
-  }
 }
 
-// view: "boot" | "signin" | "picker" | "empty" | "denied"
-// data: { email, memberships, error, busy }
+// view: "boot" | "signin" | "empty" | "denied"
+// data: { email, error, busy }
 export function showGate(view, data) {
   if (!modal) return;
   data = data || {};
@@ -66,14 +50,6 @@ export function showGate(view, data) {
   modal.querySelectorAll(".gate-email").forEach((el) => { el.textContent = email; });
   const who = $("gate-who");
   if (who) who.textContent = email ? `Signed in as ${email}` : "";
-
-  if (view === "picker" || view === "denied") {
-    renderRows($(view === "picker" ? "gate-ws-list" : "gate-ws-list-2"), data.memberships || []);
-    // In the denied state the "or open one of yours" list is only worth showing
-    // when there IS one.
-    const lbl = $("gate-other-label");
-    if (lbl) lbl.style.display = (data.memberships || []).length ? "" : "none";
-  }
 
   gateStatus(data.error || "", data.error ? "err" : "");
   setBusy(!!data.busy);
@@ -103,17 +79,6 @@ export function setBusy(on) {
     const b = $(id);
     if (b) b.disabled = !!on;
   }
-}
-
-function renderRows(box, list) {
-  if (!box) return;
-  if (!list.length) { box.innerHTML = ""; return; }
-  box.innerHTML = list.map((m) =>
-    `<div class="ws-row" data-id="${esc(m.wsId)}" role="button" tabindex="0">` +
-      `<span class="ws-name">${esc(m.name || m.wsId)}</span>` +
-      `<span class="ws-badge role-${esc(m.role)}">${esc(m.role)}</span>` +
-    `</div>`
-  ).join("");
 }
 
 // The exact token email, copyable. This exists because the address an admin

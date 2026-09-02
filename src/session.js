@@ -46,7 +46,7 @@ function armVeilWatchdog() {
 }
 
 export async function startSession() {
-  wireGate({ onSignIn: doSignIn, onSignOut: doSignOut, onPick: pickWorkspace, onRefresh: refreshMemberships });
+  wireGate({ onSignIn: doSignIn, onSignOut: doSignOut, onRefresh: refreshMemberships });
 
   // Read the URL before anything can navigate. Unlike the old bearer token this
   // is not a secret, so it is deliberately NOT stripped from the address bar —
@@ -117,17 +117,14 @@ async function afterSignIn() {
     // identically for "not a member" and "doesn't exist", so we cannot tell.
     veil(false);
     S.gate = "denied";
-    showGate("denied", { email: S.user.email, memberships: S.memberships });
+    showGate("denied", { email: S.user.email });
     return;
   }
 
-  if (S.memberships.length === 1) return open(S.memberships[0]);
-  if (S.memberships.length) {
-    veil(false);
-    S.gate = "picker";
-    showGate("picker", { email: S.user.email, memberships: S.memberships });
-    return;
-  }
+  // No "pick a workspace" step. The panel is the app's only workspace list, so
+  // sign-in lands you in your last-used workspace (or the first alphabetically)
+  // and you switch from there — rather than being asked before you see anything.
+  if (S.memberships.length) return open(S.memberships[0]);
 
   veil(false);
   S.gate = "empty";
@@ -154,12 +151,13 @@ async function open(m, boardId) {
     return true;
   }
   // Failed to open. Don't leave an empty board looking connected — re-gate.
-  S.gate = S.memberships.length ? "picker" : "empty";
-  showGate(S.gate, { email: S.user && S.user.email, memberships: S.memberships, error: lastOpenError() });
+  S.gate = "empty";
+  showGate("empty", { email: S.user && S.user.email, error: lastOpenError() });
   return false;
 }
 
-// Switch workspaces from the gate picker or the panel's "Switch workspace…".
+// Switch workspaces. Called by the panel, which is now the only place a
+// workspace can be chosen.
 export async function pickWorkspace(wsId) {
   const m = S.memberships.find((x) => x.wsId === wsId);
   if (!m) { gateStatus("That workspace is no longer available to you", "err"); return; }
@@ -183,18 +181,16 @@ export async function refreshMemberships() {
   setBusy(true);
   gateStatus("Checking…", "");
   try {
-    const before = S.memberships.length;
     await loadMemberships();
     if (!S.memberships.length) {
       gateStatus("Still no workspaces for " + S.user.email, "");
       showGate("empty", { email: S.user.email });
-    } else if (S.memberships.length === 1 && !before) {
+    } else {
+      // Just been invited: open it rather than announcing it and making them
+      // click again.
       setBusy(false);
       await open(S.memberships[0]);
       return;
-    } else {
-      gateStatus("", "");
-      showGate("picker", { email: S.user.email, memberships: S.memberships });
     }
   } catch (err) {
     gateStatus("Check failed: " + (err.message || err.code), "err");

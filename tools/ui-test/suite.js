@@ -266,13 +266,14 @@ panel.closePanel();
 $("cloud-btn").dispatchEvent(new MouseEvent("click", { bubbles: true }));
 ck("the toolbar title opens the panel", panel.isPanelOpen(), true);
 
-panel.closePanel();
-$("board-new").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-ck("Board button opens the panel", panel.isPanelOpen(), true);
-ck("...straight into a new-board field", !!document.querySelector(".wp-inline"), true);
-document.querySelector(".wp-inline").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+// The toolbar's board dropdown and Board button are gone: boards live in the
+// panel, and a second entry point would be two places to look again.
+ck("toolbar has no board dropdown", !!$("board-select"), false);
+ck("toolbar has no Board button", !!$("board-new"), false);
+ck("old workspace modal is gone", !!$("cloud-overlay"), false);
 
 // A real end-to-end create through the app's own callbacks.
+panel.openPanel();
 panel.renderPanel();
 document.querySelector(".wp-newboard").dispatchEvent(new MouseEvent("click", { bubbles: true }));
 const live = document.querySelector(".wp-inline");

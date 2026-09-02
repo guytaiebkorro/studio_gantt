@@ -17,23 +17,7 @@
 #toolbar .title-btn:hover { background: var(--btn-hover); border-color: var(--border-strong); }
 #toolbar .title-logo { display: block; border-radius: 6px; }
 #toolbar .spacer { flex: 1; }
-.board-select {
-  height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; font-weight: 600; color: var(--text); background: var(--input-bg);
-  border: 1px solid var(--border-strong); border-radius: var(--radius-pill); max-width: 200px;
-  text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
-  /* custom chevron hugging the label — the native select arrow sits at the far
-     right edge and drifts away from short board names */
-  appearance: none; -webkit-appearance: none;
-  padding: 0 28px 0 14px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a08b74' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 12px;
-}
-:root[data-theme="dark"] .board-select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238fa0b5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-}
-.filter-input {
+:root[data-theme="dark"] .filter-input {
   height: var(--ctrl-h); font-size: 12.5px; font-family: inherit; font-weight: 600; color: var(--text); background: var(--input-bg);
   border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 0 14px; width: 150px;
   transition: box-shadow .15s, border-color .15s, width .15s;

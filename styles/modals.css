@@ -60,17 +60,6 @@
   font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
   color: var(--ok-text); background: var(--ok-bg); padding: 2px 7px; border-radius: var(--radius-pill);
 }
-/* the × sits quiet until the row is hovered, so switching stays the obvious action */
-.ws-forget {
-  border: none; background: transparent; color: var(--muted); cursor: pointer;
-  font-size: 17px; line-height: 1; padding: 0 4px; border-radius: 6px; opacity: 0;
-  font-family: inherit;
-}
-.ws-row:hover .ws-forget, .ws-forget:focus-visible { opacity: 1; }
-.ws-forget:hover { color: var(--danger); }
-/* Renaming a workspace is an ADMIN act, not an unlock act: the name lives on
-   the workspace document and firestore.rules grants `name` to admins only. */
-body:not(.role-admin) #c-ws-name { pointer-events: none; opacity: .65; }
 
 /* ---------- Viewer role ---------- */
 /* The lock button stops being a toggle: it reports state and nothing more. */
@@ -83,7 +72,6 @@ body:not(.role-admin) #c-ws-name { pointer-events: none; opacity: .65; }
    A link now carries no credential and grants nothing, so a viewer sharing one
    is harmless — under the old model it handed out write access. */
 /* nothing auto-saves in a view-only session */
-body.view-only .autosave-note { display: none; }
 .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
 .modal .foot .left { margin-right: auto; }
 .danger { color: var(--danger); border-color: var(--danger-border); }
@@ -105,17 +93,14 @@ body.view-only .autosave-note { display: none; }
    permissions.js. `display:none` is not a boundary; it just avoids showing an
    editor a button that would refuse. */
 body.locked #add-task, body.locked #add-milestone, body.locked #add-group,
-body.locked #board-new, body.locked #import-btn, body.locked #save-btn,
+body.locked #import-btn, body.locked #save-btn,
 body.locked #f-save, body.locked #f-delete, body.locked #f-duplicate,
-body.locked #c-savenow, body.locked #c-create, body.locked #c-rename { display: none !important; }
 /* A viewer can never write, so hide the affordances outright rather than
    relying on the lock (which they cannot open anyway). */
 body:not(.role-editor) #add-task, body:not(.role-editor) #add-milestone,
-body:not(.role-editor) #add-group, body:not(.role-editor) #board-new,
+body:not(.role-editor) #add-group,
 body:not(.role-editor) #import-btn, body:not(.role-editor) #save-btn,
-body:not(.role-editor) #lock-btn,
-body:not(.role-editor) #c-savenow, body:not(.role-editor) #c-create,
-body:not(.role-editor) #c-rename { display: none !important; }
+body:not(.role-editor) #lock-btn { display: none !important; }
 /* the editor opens read-only while locked */
 body.locked #editor-overlay .body input,
 body.locked #editor-overlay .body select,

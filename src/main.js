@@ -21,19 +21,19 @@ import { applyLockUI, updateViewButtons, updateModeButtons } from "./ui/toolbar.
 import { renderSwatches, closeEditor } from "./ui/editor.js";
 import { closeGroupEditor } from "./ui/groupEditor.js";
 import { flushSave, refreshOnActivate, boardOpen } from "./sync.js";
-import { updateCloudUI, closeCloud } from "./boards.js";
+import { updateCloudUI } from "./boards.js";
 import { canEdit } from "./permissions.js";
 import { save } from "./persistence.js";
 import { startSession } from "./session.js";
 import "./ui/interactions.js";  // ensure its top-level wiring runs
-import "./ui/members.js";       // ditto — the People panel wires its own handlers
 
 // --- window-level shortcuts & lifecycle ---
 window.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
   // Note the deliberate omission of #auth-overlay: the startup gate is not
   // dismissable, because behind it there is either no session or no workspace.
-  if (e.key === "Escape") { closeEditor(); closeGroupEditor(); closeCloud(); }
+  // The panel and the invite dialog handle their own Escape, in that order.
+  if (e.key === "Escape") { closeEditor(); closeGroupEditor(); }
 });
 // warn before leaving with unsaved changes
 window.addEventListener("beforeunload", (e) => {

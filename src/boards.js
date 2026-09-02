@@ -18,14 +18,13 @@
 // it was never granted client-side. Losing access means an admin removes you.
 // ---------------------------------------------------------------------------
 import { DEFAULT_WORKSPACE_NAME } from "./config.js";
-import { $, esc, toast, chartPane, wireBackdropClose } from "./dom.js";
+import { $, toast, chartPane } from "./dom.js";
 import { S, clearDirty } from "./state.js";
 import { canWrite, isAdmin, canAssignRole, requireEdit, requireWrite, applyRole } from "./permissions.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
 import { applyLockUI } from "./ui/toolbar.js";
-import { renderMembers, clearMembers } from "./ui/members.js";
 import {
   wirePanel, renderPanel, openPanel, closePanel, beginNewBoard, beginRenameBoard,
   openInvite, closeInvite, clearPeople
@@ -73,7 +72,6 @@ export async function openWorkspace(wsId, opts) {
     // 2. Resolve the board.
     if (S.registry.length && !S.registry.some((b) => b.id === S.ws.boardId)) {
       S.ws.boardId = S.registry[0].id;
-      renderBoardSelect();
     }
 
     // 3. A freshly provisioned workspace can have an empty index. Bootstrap one
@@ -86,7 +84,6 @@ export async function openWorkspace(wsId, opts) {
       S.registry = [{ id, name: "My Board" }];
       await backend.putBoards(S.registry);
       S.ws.boardId = id;
-      renderBoardSelect();
     }
     if (S.ws.boardId) rememberBoard(wsId, S.ws.boardId);
 
@@ -96,13 +93,12 @@ export async function openWorkspace(wsId, opts) {
 
     // Mark the workspace OPEN before the final UI refresh, and own that flag
     // here rather than in session.js. updateWorkspaceButton() and
-    // renderMembers() both key off S.gate, so refreshing while it still said
+    // the panel's People section both key off S.gate, so refreshing while it said
     // "picker" left the toolbar reading "Gantt" and the People section hidden
     // until something happened to re-trigger them — clicking the title being
     // one, which is why the workspace name appeared to update only on click.
     S.gate = "open";
     updateCloudUI();
-    closeCloud();
     startPolling();
     requestAnimationFrame(() => {
       chartPane.scrollLeft = Math.max(0, dateToX(today()) - chartPane.clientWidth / 2);
@@ -149,38 +145,9 @@ export async function loadRegistry() {
   // be stale (or absent on a first visit). Repaint here so this function leaves
   // the UI consistent on its own, rather than relying on a later caller.
   if (reg.name) { S.workspaceName = reg.name; updateWorkspaceButton(); }
-  renderBoardSelect();
 }
 
-export function renderBoardSelect() {
-  const sel = $("board-select");
-  if (!sel) return;
-  sel.innerHTML = S.registry.map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
-  if (S.ws.boardId && !S.registry.some((b) => b.id === S.ws.boardId)) {
-    const o = document.createElement("option");
-    o.value = S.ws.boardId; o.textContent = "(current)";
-    sel.appendChild(o);
-  }
-  sel.value = S.ws.boardId || "";
-  fitBoardSelect();
-}
 
-// Size the select to its SELECTED option, not its widest one — a native select
-// keeps the width of the longest board name, stranding the chevron far from a
-// short selected name.
-function fitBoardSelect() {
-  const sel = $("board-select");
-  const opt = sel && sel.selectedOptions && sel.selectedOptions[0];
-  if (!opt) { if (sel) sel.style.width = ""; return; }
-  const probe = document.createElement("span");
-  probe.style.cssText = "position:absolute; visibility:hidden; white-space:nowrap;";
-  probe.style.font = getComputedStyle(sel).font;
-  probe.textContent = opt.textContent;
-  document.body.appendChild(probe);
-  const text = probe.getBoundingClientRect().width;
-  probe.remove();
-  sel.style.width = Math.ceil(Math.min(200, text + 44)) + "px";
-}
 
 export async function switchBoard(id) {
   if (!id || id === S.ws.boardId) return;
@@ -191,7 +158,6 @@ export async function switchBoard(id) {
   S.ws.boardId = id;
   rememberBoard(S.ws.id, id);
   S.cloudReady = false;
-  renderBoardSelect();
   $("loading").classList.add("show");
   await loadFromCloud();
   $("loading").classList.remove("show");
@@ -217,7 +183,6 @@ export async function newBoard(name) {
     S.ws.boardId = id;
     rememberBoard(S.ws.id, id);
     S.cloudReady = false;
-    renderBoardSelect();
     await loadFromCloud();
     toast("Board “" + name + "” created ✓");
   } catch (err) {
@@ -244,11 +209,9 @@ export async function renameBoard(boardId, name) {
     // onto the workspace doc, which is what makes the dropdown one read.
     await backend.putBoards(S.registry);
     await backend.renameBoard(boardId, name);
-    renderBoardSelect();
     toast("Renamed ✓");
   } catch (err) {
     if (entry) entry.name = prev;
-    renderBoardSelect();
     toast("Rename failed: " + friendlyError(err));
   }
 }
@@ -277,30 +240,24 @@ export function updateWorkspaceButton() {
   if (btn) btn.title = (conn ? `Workspace: ${name}` : "Workspace") + ` — sync: ${S.syncState}`;
 }
 
-// Mirror the active workspace name into the panel's field. Skipped while the
-// field has focus so a background refresh can't overwrite mid-edit.
-function renderWorkspaceName() {
-  const inp = $("c-ws-name");
-  if (inp && document.activeElement !== inp) inp.value = S.workspaceName || "";
-}
 
 // Rename the workspace. Admin-only: the name lives on the workspace document,
 // and firestore.rules grants `name` changes to admins while granting `boards`
 // changes to editors. Attempting it as an editor would be rejected server-side.
-async function renameWorkspace(raw) {
+export async function renameWorkspace(raw) {
   if (!cloudConnected() || S.gate !== "open") return;
-  if (!isAdmin()) { renderWorkspaceName(); return; }
+  if (!isAdmin()) return;
   const name = (raw || "").trim() || DEFAULT_WORKSPACE_NAME;
   const prev = S.workspaceName;
-  if (name === prev) { renderWorkspaceName(); return; }
+  if (name === prev) return;
   S.workspaceName = name;
-  updateWorkspaceButton(); renderWorkspaceName();
+  updateWorkspaceButton();
   try {
     await backend.putWorkspaceName(name);
     toast("Workspace renamed ✓");
   } catch (err) {
     S.workspaceName = prev;
-    updateWorkspaceButton(); renderWorkspaceName();
+    updateWorkspaceButton();
     toast("Rename failed: " + friendlyError(err));
   }
 }
@@ -331,8 +288,7 @@ async function leaveActiveWorkspace() {
 // behind the gate.
 function clearLoadedBoard() {
   S.suppressAutosave = true;
-  S.registry = []; renderBoardSelect();
-  S.cloudReady = false; S.baseState = null; S.loadedAt = 0;
+  S.registry = [];  S.cloudReady = false; S.baseState = null; S.loadedAt = 0;
   S.state = {
     version: 1,
     settings: { viewMode: (S.state.settings && S.state.settings.viewMode) || "week" },
@@ -354,7 +310,7 @@ export async function leaveWorkspace() {
   backend.wsId = null;
   S.role = null;
   S.workspaceName = DEFAULT_WORKSPACE_NAME;
-  clearMembers();
+  clearPeople();
   updateWorkspaceButton();
 }
 
@@ -387,49 +343,12 @@ async function leaveForGood() {
 export function updateCloudUI() {
   const conn = cloudConnected() && S.gate === "open";
   document.body.classList.toggle("cloud-on", conn);
-  if (conn) {
-    const n = S.registry.length;
-    setCloudStatus(`“${S.workspaceName}” — ${n === 1 ? "1 board" : n + " boards"}.`, "ok");
-    setSync("ok");
-  } else {
-    setSync("idle");
-  }
-  const who = $("c-signed-in-as");
-  if (who) who.textContent = S.user ? `Signed in as ${S.user.email} — ${S.role || "?"} in this workspace.` : "";
+  setSync(conn ? "ok" : "idle");
   updateWorkspaceButton();
-  renderWorkspaceName();
-  renderMembers();
   renderPanel();
 }
 
-export function openCloud() {
-  // The panel is only reachable with a workspace open; the gate handles every
-  // other state, so this no longer needs a non-dismissable mode.
-  if (S.gate !== "open") return;
-  updateCloudUI();
-  $("cloud-overlay").classList.add("show");
-}
-export function closeCloud() {
-  $("cloud-overlay").classList.remove("show");
-}
 
-// --- wiring -----------------------------------------------------------------
-$("c-close").addEventListener("click", closeCloud);
-wireBackdropClose($("cloud-overlay"), closeCloud);
-$("c-ws-name").addEventListener("change", (e) => { renameWorkspace(e.target.value); });
-$("c-ws-name").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
-  if (e.key === "Escape") { e.preventDefault(); renderWorkspaceName(); e.target.blur(); }
-});
-$("c-ws-switch").addEventListener("click", async () => {
-  closeCloud();
-  const { showGate } = await import("./ui/gate.js");
-  S.gate = "picker";
-  showGate("picker", { email: S.user && S.user.email, memberships: S.memberships });
-});
-$("c-leave-ws").addEventListener("click", () => { leaveForGood(); });
-$("c-savenow").addEventListener("click", () => { if (requireEdit()) saveToCloud(); });
-$("board-select").addEventListener("change", (e) => { switchBoard(e.target.value); });
 $("refresh-btn").addEventListener("click", () => { refreshNow(); });
 
 // --- panel wiring ----------------------------------------------------------
@@ -498,11 +417,10 @@ wirePanel({
 }
 installPanelHandlers();
 
-// The toolbar title is the panel's trigger. Board creation now lives in the
-// panel too, so #board-new opens it straight into a new-board field rather than
-// duplicating the flow.
+// The toolbar title is the panel's only trigger. The board dropdown and Board
+// button are gone from the toolbar entirely — boards live in the panel now, so
+// keeping a second entry point would just be two places to look again.
 $("cloud-btn").addEventListener("click", () => { openPanel(); });
-$("board-new").addEventListener("click", () => { openPanel(); beginNewBoard(); });
 
 async function copyBoardLink(boardId) {
   const { copyLinkTo } = await import("./share.js");

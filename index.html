@@ -84,8 +84,6 @@
          updateWorkspaceButton(); it said "Account" from when a workspace was a
          JSONBin account. -->
     <button class="btn title-btn" id="cloud-btn" title="Workspace"><img class="title-logo" src="favicon-32.png" alt="" width="20" height="20"><span id="cloud-label">Gantt</span><span class="cloud-dot"></span></button>
-    <select id="board-select" class="board-select" title="Switch board"></select>
-    <button class="btn" id="board-new" title="Create a new board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Board</button>
     <button class="btn" id="refresh-btn" title="Pull the latest from the cloud"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
     <span style="width:1px; height:22px; background:var(--border); margin:0 2px;"></span>
     <button class="btn" id="add-task"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Task</button>
@@ -218,75 +216,6 @@
   </div>
 </div>
 
-<!-- Workspace: name, switcher, key entry, board management -->
-<div class="overlay" id="cloud-overlay">
-  <div class="modal">
-    <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>Workspace</h3>
-    <div class="body">
-      <div id="c-status" class="c-status">Not connected.</div>
-      <div class="cloud-board-controls">
-        <label>Workspace name</label>
-        <input type="text" id="c-ws-name" autocomplete="off" placeholder="Workspace" maxlength="60">
-        <div class="hint">Shown in the toolbar. Stored with the workspace, so everyone who opens it sees the same name.</div>
-      </div>
-      <!-- People. Hidden for viewers, who can see the roster but not change it
-           (the role select and Invite button are what's gated, not the list). -->
-      <div class="cloud-board-controls" id="c-people">
-        <label>People</label>
-        <div class="ws-list" id="c-members"></div>
-        <div id="c-invite-row">
-          <input type="email" id="c-invite-email" autocomplete="off" placeholder="teammate@company.com">
-          <select id="c-invite-role" title="What they'll be able to do">
-            <option value="viewer">Viewer — read only</option>
-            <option value="editor">Editor — can edit &amp; invite</option>
-            <option value="admin">Admin — can also manage people</option>
-          </select>
-          <button class="btn primary" id="c-invite-btn">Invite</button>
-        </div>
-        <div class="hint" id="c-invite-hint">
-          Invited people get access the next time they sign in with Google — they don't need an
-          account yet. Editors can invite viewers and editors; only admins can invite admins.
-        </div>
-      </div>
-
-      <div class="cloud-board-controls">
-        <div class="ws-actions" style="margin-top:0;">
-          <button class="btn" id="c-ws-switch">Switch workspace…</button>
-          <button class="btn danger" id="c-leave-ws">Leave this workspace</button>
-        </div>
-        <div class="hint" id="c-signed-in-as"></div>
-      </div>
-      <div class="cloud-board-controls">
-        <label>Share this board</label>
-        <div class="ws-actions" style="margin-top:0;">
-          <button class="btn" id="c-copy-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0-7.07-7.07L10 5.93"/><path d="M14 11a5 5 0 0 0-7.07 0L5.5 12.4a5 5 0 0 0 7.07 7.07L14 18.07"/></svg>Copy link to this board</button>
-        </div>
-        <div class="hint">
-          The link carries <b>no key and grants nothing</b> — it just names this workspace and board.
-          Whoever opens it still has to sign in, and still has to have been invited. Permission
-          follows the person now, not the link, so one link works for everyone.
-        </div>
-        <div class="hint">
-          There is no separate view-only link any more: give someone the <b>Viewer</b> role above and
-          editing is switched off for them wherever they open it. Unlike before, that is enforced by
-          the server rather than just hidden in the interface.
-        </div>
-      </div>
-      <div class="cloud-board-controls" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <button class="btn" id="c-savenow">Save now</button>
-        <button class="btn" id="c-create">New board</button>
-        <button class="btn" id="c-rename">Rename board</button>
-      </div>
-      <div class="cloud-board-controls autosave-note" style="color:var(--muted); font-size:11.5px;">
-        Changes auto-save to the cloud as you edit — no Save button needed.
-      </div>
-    </div>
-    <div class="foot">
-      <button class="btn primary" id="c-close">Close</button>
-    </div>
-  </div>
-</div>
-
 <!-- Workspace navigation: a slide-over owning workspaces, their boards, and
      People. src/ui/panel.js owns this and nothing else.
 
@@ -311,6 +240,10 @@
     <div id="wp-people"></div>
     <button class="wp-add" id="wp-invite-open" type="button" hidden>＋ Invite someone</button>
   </div>
+
+  <!-- Transient errors only. Not a hint: without it, a failed save or load
+       would have nowhere to appear once the old modal's status line went. -->
+  <div class="c-status err" id="wp-status" hidden></div>
 
   <footer class="wp-foot">
     <button class="wp-ghost" id="wp-copy-link" title="Copy a link to this board">
@@ -370,11 +303,6 @@
         <div class="hint">Access is invite-only — an admin has to add your address before you can open anything.</div>
       </section>
 
-      <section data-when="picker">
-        <label>Your workspaces</label>
-        <div class="ws-list" id="gate-ws-list"></div>
-      </section>
-
       <section data-when="empty">
         <p class="gate-lead">You're not in any workspace yet.</p>
         <div class="hint">Ask an admin to invite <b class="gate-email"></b>. Access is granted per
@@ -387,8 +315,6 @@
              reads identically whether you're not a member or it's not there, so
              the client genuinely cannot tell the two apart. -->
         <div class="hint">Ask an admin to invite <b class="gate-email"></b>.</div>
-        <label id="gate-other-label">Or open one of yours</label>
-        <div class="ws-list" id="gate-ws-list-2"></div>
       </section>
 
       <div class="c-status" id="gate-status"></div>
