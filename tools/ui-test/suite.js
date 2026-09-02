@@ -51,7 +51,11 @@ export const calls = [];
 function stubBackend() {
   backend.getRegistry = async () => ({
     name: (WORKSPACES.find((w) => w.wsId === backend.wsId) || {}).name || "",
-    boards: BOARDS[backend.wsId] || []
+    // A COPY, like the real adapter, which builds a fresh array from Firestore
+    // on every read. Returning the fixture array itself aliased it into
+    // S.registry, so newBoard()'s push mutated the fixture and later
+    // assertions saw boards a previous test had created.
+    boards: (BOARDS[backend.wsId] || []).map((b) => ({ ...b }))
   });
   backend.loadBoard = async () => ({
     data: { version: 1, settings: { viewMode: "week" }, groups: [], tasks: [] },
@@ -472,5 +476,54 @@ document.querySelector(".wp-more").dispatchEvent(new MouseEvent("click", { bubbl
 document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 await sleep(40);
 ck("clicking away closes the menu", !!document.querySelector(".wp-menu"), false);
+
+// --- T11: role gating sweep ------------------------------------------------
+// The full matrix from the design doc, asserted per role rather than spot
+// checked. The UI hiding a control is not a guard — firestore.rules is — but a
+// control that appears and then fails is its own bug.
+const MATRIX = {
+  viewer: { newBoard: false, renameBoard: false, invite: false, roleSelect: false,
+            remove: false, renameWs: false, leaveWs: true,  copyLink: true },
+  editor: { newBoard: true,  renameBoard: true,  invite: true,  roleSelect: false,
+            remove: false, renameWs: false, leaveWs: true,  copyLink: true },
+  admin:  { newBoard: true,  renameBoard: true,  invite: true,  roleSelect: true,
+            remove: true,  renameWs: true,  leaveWs: false, copyLink: true }
+};
+
+for (const [role, want] of Object.entries(MATRIX)) {
+  await setup(role);
+  panel.wirePanel(peopleHandlers());
+  panel.renderPanel();
+  await sleep(200);
+
+  ck(`${role}: New board`, !!document.querySelector(".wp-newboard"), want.newBoard);
+  ck(`${role}: rename board`, document.querySelectorAll("#wp-workspaces [data-rename]").length > 0, want.renameBoard);
+  ck(`${role}: copy board link`, document.querySelectorAll("#wp-workspaces [data-link]").length > 0, want.copyLink);
+  ck(`${role}: invite`, !$("wp-invite-open").hidden, want.invite);
+  ck(`${role}: role selects`, document.querySelectorAll("#wp-people select.wp-member-role").length > 0, want.roleSelect);
+  ck(`${role}: remove member`, document.querySelectorAll("#wp-people [data-remove]").length > 0, want.remove);
+
+  document.querySelector(".wp-more").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  ck(`${role}: rename workspace`, !!document.querySelector("[data-act='rename-ws']"), want.renameWs);
+  ck(`${role}: leave workspace`, !!document.querySelector("[data-act='leave-ws']"), want.leaveWs);
+  document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await sleep(20);
+
+  // Everyone can always see the workspaces and boards they have access to.
+  ck(`${role}: sees all workspaces`, rows().length, 2);
+  ck(`${role}: sees the boards`, document.querySelectorAll("#wp-workspaces .wp-board").length, 2);
+  ck(`${role}: sees the roster`, members().length, 2);
+}
+
+// And the guards hold when the view is bypassed entirely.
+const boards3 = await import("../../src/boards.js");
+for (const role of ["viewer"]) {
+  await setup(role);
+  calls.length = 0;
+  await boards3.newBoard("Bypass");
+  await boards3.renameBoard("b1", "Bypass");
+  await boards3.renameWorkspace("Bypass");
+  ck(`${role}: direct calls all refused`, calls.length, 0);
+}
 
 rep("__DONE__");
