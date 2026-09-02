@@ -321,6 +321,33 @@
   </footer>
 </aside>
 
+<!-- Invite dialog. This one IS an .overlay, deliberately: uiBusy() treats it as
+     an edit in progress and pauses syncing, which is right for a modal you are
+     filling in. Inviting is a commitment and gets focus, rather than being an
+     inline row you can fat-finger. -->
+<div class="overlay" id="invite-dialog">
+  <div class="modal invite-modal">
+    <h3>Invite to <span id="invite-ws"></span></h3>
+    <div class="body">
+      <input type="email" id="invite-email" autocomplete="off" spellcheck="false"
+             placeholder="name@company.com" aria-label="Email address">
+      <!-- Roles as a segmented control. The one line of meaning below it
+           replaces the paragraph that used to explain all three at once. -->
+      <div class="wp-segs" id="invite-roles" role="radiogroup" aria-label="Permission level">
+        <button class="wp-seg on" type="button" data-role="viewer" role="radio" aria-checked="true">Viewer</button>
+        <button class="wp-seg" type="button" data-role="editor" role="radio" aria-checked="false">Editor</button>
+        <button class="wp-seg" type="button" data-role="admin" role="radio" aria-checked="false">Admin</button>
+      </div>
+      <p class="wp-note" id="invite-role-note"></p>
+      <div class="c-status" id="invite-status" style="display:none"></div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="invite-cancel">Cancel</button>
+      <button class="btn primary" id="invite-send">Send invite</button>
+    </div>
+  </div>
+</div>
+
 <!-- Startup gate. NON-DISMISSABLE by construction: no close button, no
      wireBackdropClose, and main.js's Escape handler deliberately does not name
      it. One section shows at a time, chosen by data-view on the modal.

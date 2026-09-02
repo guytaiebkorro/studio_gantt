@@ -360,4 +360,67 @@ await sleep(200);
 ck("a failed roster load is reported, not silently empty",
    $("wp-people").textContent.toLowerCase().includes("access"), true);
 
+// --- T7: invite dialog ----------------------------------------------------
+await setup("admin");
+let invited = null;
+panel.wirePanel(peopleHandlers({
+  onOpenInvite: () => panel.openInvite(),
+  onInvite: (email, role) => { invited = [email, role]; return Promise.resolve(); }
+}));
+panel.renderPanel();
+panel.openPanel();
+await sleep(200);
+
+$("wp-invite-open").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("dialog opens", $("invite-dialog").classList.contains("show"), true);
+ck("dialog names the workspace", $("invite-ws").textContent, "Game Dev");
+ck("dialog IS an overlay (a modal should pause syncing)",
+   $("invite-dialog").classList.contains("overlay"), true);
+ck("admin sees all three roles", document.querySelectorAll("#invite-roles .wp-seg").length, 3);
+ck("viewer is the default", document.querySelector("#invite-roles .wp-seg.on").dataset.role, "viewer");
+ck("the default role explains itself", $("invite-role-note").textContent.length > 10, true);
+
+const noteBefore = $("invite-role-note").textContent;
+document.querySelector('#invite-roles [data-role="editor"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("selecting a role moves the highlight",
+   document.querySelector("#invite-roles .wp-seg.on").dataset.role, "editor");
+ck("...and changes the one line of meaning", $("invite-role-note").textContent !== noteBefore, true);
+
+// Escape closes the DIALOG, and leaves the panel alone.
+window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+await sleep(60);
+ck("Escape closes the dialog", $("invite-dialog").classList.contains("show"), false);
+ck("Escape did not also close the panel", panel.isPanelOpen(), true);
+
+// Submitting.
+$("wp-invite-open").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+$("invite-email").value = "  NEW@Korro.AI  ";
+document.querySelector('#invite-roles [data-role="editor"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+$("invite-send").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+await sleep(120);
+ck("invite reports a trimmed lowercased email", JSON.stringify(invited), JSON.stringify(["new@korro.ai", "editor"]));
+ck("dialog closes after a successful invite", $("invite-dialog").classList.contains("show"), false);
+
+// An empty email must not submit.
+invited = null;
+$("wp-invite-open").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+$("invite-email").value = "   ";
+$("invite-send").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+await sleep(80);
+ck("an empty email does not invite", invited, null);
+ck("...and the dialog stays open to fix it", $("invite-dialog").classList.contains("show"), true);
+panel.closeInvite();
+
+// An editor must not even be offered the admin role — removed, not disabled, so
+// it cannot be re-enabled from devtools into a confusing server rejection.
+await setup("editor");
+panel.wirePanel(peopleHandlers({ onOpenInvite: () => panel.openInvite() }));
+panel.renderPanel();
+await sleep(200);
+$("wp-invite-open").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("editor sees only two roles", document.querySelectorAll("#invite-roles .wp-seg").length, 2);
+ck("editor has no admin segment at all",
+   !!document.querySelector('#invite-roles [data-role="admin"]'), false);
+panel.closeInvite();
+
 rep("__DONE__");

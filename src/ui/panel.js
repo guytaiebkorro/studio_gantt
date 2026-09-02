@@ -36,10 +36,18 @@ function wireOnce() {
   $("wp-signout").addEventListener("click", () => { if (handlers.onSignOut) handlers.onSignOut(); });
   $("wp-copy-link").addEventListener("click", () => { if (handlers.onCopyLink) handlers.onCopyLink(); });
 
-  // Escape closes the panel. The invite dialog registers a capture-phase
-  // handler that stops propagation, so Escape closes the dialog first.
+  // Escape closes the panel — unless the invite dialog is on top, which takes
+  // Escape first.
+  //
+  // This is an explicit check rather than stopPropagation() from the dialog,
+  // because both listeners sit on `window`: stopPropagation does not stop other
+  // listeners on the SAME node, and at the target they fire in registration
+  // order, so the panel's (registered first) would win regardless. Checking is
+  // order-independent.
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && open) closePanel();
+    if (e.key !== "Escape" || !open) return;
+    if (isInviteOpen()) return;
+    closePanel();
   });
 
   // One delegated listener for the whole workspace tree, so re-rendering never
@@ -58,6 +66,17 @@ function wireOnce() {
   $("wp-people").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-remove]");
     if (btn && handlers.onRemoveMember) handlers.onRemoveMember(btn.dataset.remove);
+  });
+
+  // Invite dialog.
+  $("invite-roles").addEventListener("click", (e) => {
+    const seg = e.target.closest(".wp-seg");
+    if (seg) setInviteRole(seg.dataset.role);
+  });
+  $("invite-cancel").addEventListener("click", closeInvite);
+  $("invite-send").addEventListener("click", () => { submitInvite(); });
+  $("invite-email").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitInvite(); }
   });
   $("wp-workspaces").addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
@@ -236,6 +255,109 @@ function renderBoards() {
     }).join("") +
     (mayEdit ? `<button class="wp-add wp-newboard" type="button">＋ New board</button>` : "") +
   `</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Invite dialog.
+//
+// A real modal rather than an inline row: inviting someone is a commitment and
+// deserves focus, and it is easy to fat-finger a row you didn't mean to touch.
+//
+// The role segments carry ONE line of meaning for the SELECTED role, which is
+// what replaced the paragraph that used to explain all three upfront.
+// ---------------------------------------------------------------------------
+const ROLE_NOTE = {
+  viewer: "Can see boards, but not change anything.",
+  editor: "Can edit boards, and invite viewers and editors.",
+  admin: "Can do everything, including managing people."
+};
+
+let inviteRole = "viewer";
+let inviteEsc = null;
+
+export function isInviteOpen() {
+  const dlg = $("invite-dialog");
+  return !!dlg && dlg.classList.contains("show");
+}
+
+export function openInvite() {
+  const dlg = $("invite-dialog");
+  if (!dlg) return;
+
+  $("invite-ws").textContent = S.workspaceName || "";
+  $("invite-email").value = "";
+  inviteStatus("");
+
+  // Only admins may hand out admin. The segment is REMOVED, not disabled: a
+  // disabled control can be re-enabled from devtools, and the write would then
+  // fail server-side with a confusing rejection. Absence is honest.
+  const adminSeg = document.querySelector('#invite-roles [data-role="admin"]');
+  if (adminSeg && !isAdmin()) adminSeg.remove();
+
+  setInviteRole("viewer");
+  dlg.classList.add("show");
+  $("invite-email").focus();
+
+  // The panel's own Escape handler defers while this is open (see wireOnce),
+  // so a plain listener is enough.
+  inviteEsc = (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    closeInvite();
+  };
+  window.addEventListener("keydown", inviteEsc);
+}
+
+export function closeInvite() {
+  const dlg = $("invite-dialog");
+  if (dlg) dlg.classList.remove("show");
+  if (inviteEsc) { window.removeEventListener("keydown", inviteEsc); inviteEsc = null; }
+}
+
+function setInviteRole(role) {
+  inviteRole = ROLE_NOTE[role] ? role : "viewer";
+  document.querySelectorAll("#invite-roles .wp-seg").forEach((b) => {
+    const on = b.dataset.role === inviteRole;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", String(on));
+  });
+  $("invite-role-note").textContent = ROLE_NOTE[inviteRole];
+}
+
+function inviteStatus(msg, kind) {
+  const el = $("invite-status");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.className = "c-status" + (kind ? " " + kind : "");
+  el.style.display = msg ? "" : "none";
+}
+
+async function submitInvite() {
+  const raw = $("invite-email").value || "";
+  const email = raw.trim().toLowerCase();
+  if (!email) { inviteStatus("Enter an email address", "err"); $("invite-email").focus(); return; }
+  if (!canAssignRole(inviteRole)) { inviteStatus(`You can't invite someone as ${inviteRole}`, "err"); return; }
+
+  const btn = $("invite-send");
+  btn.disabled = true;
+  inviteStatus("Inviting…");
+  try {
+    if (handlers.onInvite) await handlers.onInvite(email, inviteRole);
+    closeInvite();
+    renderPanel();
+  } catch (err) {
+    // The likeliest cause is an address the rules reject: the member document's
+    // id IS the email, validated against a pattern narrower than RFC 5321
+    // (a '/' is legal in an address but illegal in a document id).
+    inviteStatus(
+      err && err.code === "permission-denied"
+        ? "Refused — check it's a plain lowercase email, and that you can grant that role."
+        : "Couldn't invite: " + ((err && err.message) || "unknown error"),
+      "err"
+    );
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------

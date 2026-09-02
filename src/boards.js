@@ -27,11 +27,12 @@ import { render } from "./render/index.js";
 import { applyLockUI } from "./ui/toolbar.js";
 import { renderMembers, clearMembers } from "./ui/members.js";
 import {
-  wirePanel, renderPanel, openPanel, closePanel, beginNewBoard, beginRenameBoard
+  wirePanel, renderPanel, openPanel, closePanel, beginNewBoard, beginRenameBoard,
+  openInvite, closeInvite, clearPeople
 } from "./ui/panel.js";
 import {
   rememberBoard, lastBoardFor, leaveWorkspace as leaveMembership,
-  listMembers, setMemberRole, removeMember
+  listMembers, setMemberRole, removeMember, inviteMember
 } from "./memberships.js";
 import {
   loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus,
@@ -468,6 +469,13 @@ wirePanel({
   // People. The panel is a view and never talks to Firestore itself, so the
   // roster arrives through this callback.
   loadMembers: () => listMembers(S.ws.id),
+  onOpenInvite: () => openInvite(),
+  onInvite: async (email, role) => {
+    // Throws on rejection so the dialog can keep itself open and show why,
+    // rather than closing over a failure.
+    await inviteMember(S.ws.id, email, role);
+    toast(`Invited ${email} as ${role} — they're in next time they sign in`);
+  },
   onSetRole: async (email, role) => {
     if (!canAssignRole(role)) { toast(`You can't set someone to ${role}`); return; }
     try {
