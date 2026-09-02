@@ -11,12 +11,8 @@ import { scheduleCloudSave } from "./sync.js";
 import { render } from "./render/index.js";
 import { updateViewButtons } from "./ui/toolbar.js";
 
-// Whether this browser can write files in place (Chrome/Edge File System API).
-export const supportsFS = typeof window.showSaveFilePicker === "function";
-
 export const S = {
   state: loadState(),          // the board document { version, settings, groups, tasks }
-  fileHandle: null,            // FileSystemFileHandle (Chrome/Edge in-place save)
   dirty: false,
   selectedId: null,            // primary selection (editor / delete target)
   selectedIds: new Set(),      // multi-selection: tasks tagged to move together
@@ -28,8 +24,9 @@ export const S = {
   lastColor: null,             // remembers the last custom color picked, to reuse on new tasks
   dragging: false,             // true during a bar/milestone/row drag (pauses cloud refresh)
   locked: true,                // app starts view-only every launch; lock button toggles editing
-  viewOnly: false,             // arrived via a view-only share link: `locked` is stuck on and the
-                               // lock button can't open it. A UI guard, not a permission — see share.js.
+  viewOnly: false,             // DERIVED from S.role by permissions.applyRole() — true when the
+                               // server says you're a viewer. Never written from a link or from
+                               // localStorage, so it cannot be stale and a reload cannot promote you.
   dragTaskId: null,            // task id being dragged in the left list
   extending: false,            // guards the endless-timeline scroll extension
 
@@ -40,12 +37,19 @@ export const S = {
   // preference, so it lives in localStorage rather than the shared board doc
   viewTab: (() => { try { return localStorage.getItem(VIEWTAB_KEY) === "tasks" ? "tasks" : "gantt"; } catch (_) { return "gantt"; } })(),
 
-  // --- cloud runtime (configured by boards.js at startup) ---
-  cloud: null,                 // { apiKey, binId, registryId } — credentials + board + discovered registry
-  cloudGate: true,             // true until a valid key connects; gates the non-dismissable Cloud popup
-  registry: [],                // [{ id, name }] list of boards in the active workspace
-  workspaceName: DEFAULT_WORKSPACE_NAME, // active workspace's name (authoritative copy lives in its registry bin)
-  workspaces: [],              // [{ id, apiKey, name, binId, lastUsed }] every workspace remembered on this device
+  // --- identity (written by session.js; the source of truth is Firebase Auth) ---
+  user: null,                  // { uid, email, displayName, photoURL } or null when signed out
+  role: null,                  // "admin" | "editor" | "viewer" — assigned by the SERVER, from this
+                               // user's member document. Mirrored here for the UI only; the actual
+                               // enforcement is firestore.rules. Never trust this for security.
+  memberships: [],             // [{ wsId, name, role }] every workspace this user belongs to
+  gate: "boot",                // "boot" | "signin" | "picker" | "empty" | "denied" | "open"
+                               // Replaces the old cloudGate boolean, which conflated four states.
+
+  // --- active workspace pointer (credential-free: these are just ids) ---
+  ws: { id: "", boardId: "" }, // no apiKey. Nothing secret is ever held here or in localStorage.
+  registry: [],                // [{ id, name }] boards in the active workspace, from the workspace doc
+  workspaceName: DEFAULT_WORKSPACE_NAME, // authoritative copy lives on the workspace document
   syncState: "idle",           // last value passed to setSync — shown in the workspace button's tooltip
   loadedAt: 0,                 // updatedAt of the remote version our state descends from
   baseState: null,             // common ancestor for 3-way merge
@@ -71,7 +75,9 @@ export function clearDirty() {
 }
 
 // --- collapse state (per board) ---
-export function boardKey() { return (S.cloud && S.cloud.binId) || "local"; }
+// Keyed by board id, so the per-board collapse map resets once as ids change
+// from JSONBin bin ids to Firestore document ids. Harmless, but worth knowing.
+export function boardKey() { return (S.ws && S.ws.boardId) || "local"; }
 export function isCollapsed(gid) { return (S.collapsedMap[boardKey()] || []).includes(gid); }
 export function toggleCollapse(gid) {
   const k = boardKey(), set = new Set(S.collapsedMap[k] || []);

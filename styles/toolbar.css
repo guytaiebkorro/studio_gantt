@@ -76,23 +76,9 @@ body.cloud-on #save-btn { display: none; } /* autosave handles persistence */
    toolbar around. */
 #cloud-label { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #toolbar .title-btn .cloud-dot { margin-left: 0; }
-/* While the Account popup is gated (no valid key yet), only the key + Connect
-   and the list of remembered workspaces are usable; hide the rest. */
-body.cloud-gated .cloud-board-controls,
-body.cloud-gated .ws-actions { display: none; }
-
-/* Connected: the key can't be changed inline — hide the entry + hint until
-   "Add workspace" asks for another one. Logged out: the entry is the only way in.
-   NOTE: layout lives here (not inline) so the cloud-on hide rule can win — an
-   inline `display` would override these stylesheet rules. */
-#c-key-entry { display: flex; gap: 8px; align-items: center; }
-body.cloud-on #c-key-entry,
-body.cloud-on .c-key-label,
-body.cloud-on .c-key-hint { display: none; }
-body.cloud-on.ws-adding #c-key-entry { display: flex; }
-body.cloud-on.ws-adding .c-key-label { display: block; }
-body.cloud-on.ws-adding .c-key-hint { display: block; }
-body.cloud-on.ws-adding #c-ws-add { background: var(--chip-bg); border-color: var(--accent); }
+/* There is no key entry and no gated panel any more: the startup gate
+   (#auth-overlay, see gate.js) owns every not-yet-open state, and the Workspace
+   panel is only reachable once a workspace IS open. */
 .ws-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .c-status {
   font-size: 12.5px; padding: 8px 12px; border-radius: var(--radius-md); background: var(--chip-bg); color: var(--muted);

@@ -3,26 +3,36 @@
 // (<script type="module" src="src/main.js">).
 //
 // Importing the modules below runs their top-level wiring (event listeners on
-// the toolbar, editor, cloud panel, etc.); this file then performs first-run
-// setup and starts the app.
+// the toolbar, editor, workspace panel, etc.); this file then performs first-run
+// setup and hands off to session.js.
+//
+// Startup is AUTH-FIRST now. It used to read a credential out of localStorage
+// and connect synchronously behind the loading veil. It can't: auth.currentUser
+// is null synchronously at boot even for a valid persisted session, so session.js
+// waits on the first onAuthStateChanged before deciding anything, and owns the
+// veil until then.
 // ---------------------------------------------------------------------------
-import { $, chartPane, toast } from "./dom.js";
-import { S, supportsFS } from "./state.js";
+import { $, chartPane } from "./dom.js";
+import { S } from "./state.js";
 import { dateToX, today } from "./dates.js";
 import { render } from "./render/index.js";
 import { setupTheme } from "./theme.js";
 import { applyLockUI, updateViewButtons, updateModeButtons } from "./ui/toolbar.js";
 import { renderSwatches, closeEditor } from "./ui/editor.js";
 import { closeGroupEditor } from "./ui/groupEditor.js";
-import { cloudConnected, flushSave, refreshOnActivate } from "./sync.js";
-import { initCloudConfig, connect, openCloud, updateCloudUI, closeCloud } from "./boards.js";
+import { flushSave, refreshOnActivate, boardOpen } from "./sync.js";
+import { updateCloudUI, closeCloud } from "./boards.js";
+import { canEdit } from "./permissions.js";
 import { save } from "./persistence.js";
-import { consumeShareToken } from "./share.js";
-import "./ui/interactions.js"; // ensure its top-level wiring runs
+import { startSession } from "./session.js";
+import "./ui/interactions.js";  // ensure its top-level wiring runs
+import "./ui/members.js";       // ditto — the People panel wires its own handlers
 
 // --- window-level shortcuts & lifecycle ---
 window.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
+  // Note the deliberate omission of #auth-overlay: the startup gate is not
+  // dismissable, because behind it there is either no session or no workspace.
   if (e.key === "Escape") { closeEditor(); closeGroupEditor(); closeCloud(); }
 });
 // warn before leaving with unsaved changes
@@ -32,7 +42,7 @@ window.addEventListener("beforeunload", (e) => {
 // On tab hide (switch away / minimize): flush any pending batched save.
 // On tab show: reload data + refresh the clock-derived UI (today marker, progress).
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { if (S.dirty) flushSave(); }
+  if (document.hidden) { if (S.dirty && canEdit() && boardOpen()) flushSave(); }
   else refreshOnActivate();
 });
 // Window regaining focus is the desktop-browser equivalent of "becomes active".
@@ -40,55 +50,18 @@ window.addEventListener("focus", refreshOnActivate);
 
 // --- startup ---
 function init() {
-  initCloudConfig(); // seed S.cloud + backend credential before anything reads them
-
-  if (!supportsFS && !cloudConnected()) {
-    const b = $("save-mode-banner");
-    if (location.protocol === "file:") {
-      // Chrome/Edge DO support in-place save, but the browser blocks the API on file:// pages.
-      b.innerHTML = '⚠️ <b>In-place saving is disabled because this page was opened directly from a file</b> ' +
-        '(<code>file://</code>). For now, <b>Save</b> downloads an updated copy. ' +
-        'To save back into the same file, open it via <code>http://localhost</code> in Chrome/Edge — ' +
-        'just double-click <code>serve.command</code> in this folder (see README).';
-    } else {
-      b.textContent = "This browser doesn't support writing files in place. \"Save\" downloads a fresh gantt.html that you drop into your shared folder. For in-place saving, open it in Chrome or Edge.";
-    }
-    b.classList.add("show");
-  }
   renderSwatches();
-  applyLockUI(); // start in view-only mode
-  updateCloudUI();
+  applyLockUI();       // start read-only
   updateViewButtons();
   updateModeButtons(); // restore the saved gantt/tasks view before first render
+  updateCloudUI();
+  render();            // paint an empty board behind the gate so the veil has something to lift onto
+  scrollToToday();
 
-  // A share link wins over whatever this browser remembers: the recipient asked
-  // for THAT workspace. It's saved to their switcher on success, so the link is
-  // only needed once. (The token is stripped from the URL as it's read.)
-  const shared = consumeShareToken();
-  if (shared) {
-    connect(shared.apiKey, { registryId: shared.registryId, binId: shared.binId, name: shared.name, viewOnly: shared.viewOnly })
-      .then(ok => {
-        if (ok) toast(shared.viewOnly
-          ? `Opened “${S.workspaceName}” — view only`
-          : `Opened “${S.workspaceName}” from a shared link ✓`);
-        else openCloud(); // bad or revoked key — connect() explained why
-      })
-      .finally(() => { $("loading").classList.remove("show"); });
-  } else if (cloudConnected()) {
-    // a key is remembered — connect (discover + load) behind the loading veil.
-    // connect() lifts the gate on success; on failure it surfaces an error and
-    // we pop the gated panel so the user can re-enter a valid Master Key.
-    connect(S.cloud.apiKey)
-      .then(ok => { if (!ok) openCloud(); }) // connect() scrolls to today on success
-      .finally(() => { $("loading").classList.remove("show"); });
-  } else {
-    // no key yet — render an empty board behind a non-dismissable Cloud gate.
-    $("loading").classList.remove("show");
-    render();
-    updateCloudUI();
-    openCloud(); // S.cloudGate is true by default → popup can't be closed
-    scrollToToday();
-  }
+  // Everything from here — who's signed in, which workspaces they have, what to
+  // open — is session.js's decision tree. It owns the loading veil until it
+  // either opens a board or shows the gate.
+  startSession();
 }
 
 function scrollToToday() {

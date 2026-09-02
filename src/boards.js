@@ -1,167 +1,160 @@
 // ---------------------------------------------------------------------------
-// Workspaces and boards: the board registry, the toolbar switcher, board CRUD,
-// the workspace switcher, and the Workspace panel UI.
+// The active workspace and its boards: opening a workspace, the toolbar board
+// switcher, board CRUD, and the Workspace panel UI.
 //
 // Two levels of grouping:
-//   workspace — one backend account (a credential + its registry bin). The
-//               device-local list of them lives in ./workspaces.js.
-//   board     — one document inside the active workspace's registry.
+//   workspace — a server-side object. You belong to it via a member document;
+//               tools/admin creates it and firestore.rules denies clients from
+//               doing so. session.js decides WHICH one to open.
+//   board     — one document inside the active workspace.
 //
 // All networking goes through the `backend` adapter — this file contains no
-// fetch calls, so it works unchanged against any backend.
+// Firestore calls, so it works unchanged against any backend.
+//
+// GONE from the JSONBin era: the registry-resolution ladder (cached id → verify
+// → discover by content shape → create), key entry, and every "forget this
+// workspace locally" action. Discovery existed only because JSONBin had no
+// concept of a user; and access can no longer be forgotten client-side, because
+// it was never granted client-side. Losing access means an admin removes you.
 // ---------------------------------------------------------------------------
 import { DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { $, esc, toast, chartPane, wireBackdropClose } from "./dom.js";
 import { S, clearDirty } from "./state.js";
-import { isAdmin, requireEdit } from "./permissions.js";
+import { canWrite, isAdmin, requireEdit, applyRole } from "./permissions.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
 import { applyLockUI } from "./ui/toolbar.js";
-import { loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus, cloudConnected, startPolling } from "./sync.js";
+import { renderMembers, clearMembers } from "./ui/members.js";
+import { rememberBoard, lastBoardFor, leaveWorkspace as leaveMembership } from "./memberships.js";
 import {
-  initWorkspaces, saveActive, findWorkspace, getActiveId,
-  forgetWorkspace, forgetAllWorkspaces, workspacesForDisplay
-} from "./workspaces.js";
+  loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus,
+  cloudConnected, boardOpen, startPolling
+} from "./sync.js";
 
-// --- cloud config persistence ({ apiKey, binId, registryId }) ---
-// Nothing is embedded: a blank apiKey means "not connected yet" and the gated
-// Workspace popup will demand a Master Key. The config is a view onto the active
-// entry in the workspace list, so persisting it writes through to that entry.
-export function persistCloud() { saveActive(S.cloud, S.workspaceName, S.viewOnly); }
+let _lastError = "";
+export function lastOpenError() { return _lastError; }
 
-// Apply (or lift) view-only mode for the workspace being opened.
+// Point the app at a workspace and load a board.
 //
-// View-only is enforced by holding `S.locked` on and refusing to open it — every
-// write path in the app already checks S.locked, so this needs no separate
-// gating. It is an accident guard, not a permission: the key travels in the
-// link either way (see share.js).
-export function setViewOnly(on) {
-  S.viewOnly = !!on;
-  document.body.classList.toggle("view-only", S.viewOnly);
-  if (S.viewOnly) S.locked = true;
+// `role` came from this user's member document — it is a MIRROR of the server's
+// answer, not a decision made here. firestore.rules is the enforcement.
+//
+// Returns true on success; the caller (session.js) decides what to show on
+// failure, because only it knows whether there are other workspaces to fall
+// back to.
+export async function openWorkspace(wsId, opts) {
+  opts = opts || {};
+  _lastError = "";
+  applyRole(opts.role);
   applyLockUI();
-}
 
-// Point the app at a workspace without loading anything yet.
-function setActiveCloud(cfg) {
-  S.cloud = { apiKey: cfg.apiKey || "", binId: cfg.binId || "", registryId: cfg.registryId || "" };
-  backend.apiKey = S.cloud.apiKey || null;
-  backend.registryId = S.cloud.registryId || null;
-}
-
-// Seed S.cloud + the backend's credentials from the remembered workspaces.
-// Called once from main.js bootstrap — NOT at module-eval time, because a
-// circular import (state → sync → boards) means this module's body runs before
-// state.js has initialized `S`, which would put `S` in the temporal dead zone.
-export function initCloudConfig() {
-  setActiveCloud(initWorkspaces());
-}
-
-// Connect with a candidate Master Key: resolve the account's board registry
-// (cached → verify, else discover by listing, else create a fresh workspace),
-// load its boards, and lift the gate. Shared by startup, workspace switching,
-// share links, and the Workspace panel.
-//
-// `target` names the workspace to open — { registryId, binId, name, viewOnly }
-// — and REPLACES whatever the app was pointed at, so switching accounts can't
-// inherit the previous one's registry, board or edit rights. Pass null to resume
-// the active workspace as remembered (the startup path).
-//
-// Returns true on success. On failure the gate stays up and an error is shown.
-export async function connect(apiKey, target) {
-  apiKey = (apiKey || "").trim();
-  if (!apiKey) { setCloudStatus("Paste your JSONBin Master Key to connect.", ""); return false; }
-  if (target) {
-    setActiveCloud({ apiKey, registryId: target.registryId, binId: target.binId });
-    // A cached name paints the toolbar now; the registry's copy wins once loaded.
-    S.workspaceName = target.name || DEFAULT_WORKSPACE_NAME;
-    setViewOnly(!!target.viewOnly);
-  } else {
-    S.cloud.apiKey = apiKey;
-    backend.apiKey = apiKey;
-    setViewOnly(S.viewOnly); // resuming: re-assert what initWorkspaces() restored
-  }
+  S.ws = { id: wsId, boardId: opts.boardId || lastBoardFor(wsId) || "" };
+  backend.wsId = wsId;
+  // A cached name paints the toolbar now; the workspace document's copy wins
+  // as soon as loadRegistry() answers.
+  S.workspaceName = opts.name || DEFAULT_WORKSPACE_NAME;
   updateWorkspaceButton();
-  setSync("syncing"); setCloudStatus("Connecting…", "");
+
+  setSync("syncing");
+  setCloudStatus("Opening…", "");
   $("loading").classList.add("show");
   try {
-    // 1. Resolve the registry id.
-    let regId = S.cloud.registryId || null;
-    if (regId) {
-      backend.registryId = regId;
-      try { await backend.getRegistry(); } catch (_) { regId = null; } // cached id stale/inaccessible
-    }
-    if (!regId) { setCloudStatus("Finding your boards…", ""); regId = await backend.discoverRegistryId(); }
-    if (!regId) {
-      // brand-new account → create an isolated workspace: registry + starter board
-      setCloudStatus("Setting up a new workspace…", "");
-      S.workspaceName = DEFAULT_WORKSPACE_NAME;
-      const { id: newReg } = await backend.createRegistry(DEFAULT_WORKSPACE_NAME, []);
-      backend.registryId = newReg;
-      const empty = { version: 1, settings: { viewMode: S.state.settings.viewMode || "week" }, groups: [], tasks: [] };
-      const { id: boardId } = await backend.createBoardData("My Board", empty);
-      await backend.putRegistry(DEFAULT_WORKSPACE_NAME, [{ id: boardId, name: "My Board" }]);
-      regId = newReg; S.cloud.binId = boardId;
-    }
-    S.cloud.registryId = regId; backend.registryId = regId; persistCloud();
-
-    // 2. Load the registry — which is where the workspace's real name comes
-    //    from — then the remembered (or first) board.
+    // 1. The workspace document: its real name and its board index.
     await loadRegistry();
-    if (S.registry.length && !S.registry.some(b => b.id === S.cloud.binId)) {
-      S.cloud.binId = S.registry[0].id; renderBoardSelect();
-    }
-    persistCloud(); // cache the name the registry just gave us alongside the key
-    updateWorkspaceButton();
-    S.cloudReady = false;
-    if (S.cloud.binId) await loadFromCloud(); else render();
 
-    // 3. Lift the gate and center the timeline on today.
-    S.cloudGate = false;
+    // 2. Resolve the board.
+    if (S.registry.length && !S.registry.some((b) => b.id === S.ws.boardId)) {
+      S.ws.boardId = S.registry[0].id;
+      renderBoardSelect();
+    }
+
+    // 3. A freshly provisioned workspace can have an empty index. Bootstrap one
+    //    board if we're allowed to write; a viewer gets an empty board instead,
+    //    since they cannot create one and shouldn't see a failed write.
+    if (!S.registry.length && canWrite()) {
+      setCloudStatus("Creating your first board…", "");
+      const empty = { version: 1, settings: { viewMode: S.state.settings.viewMode || "week" }, groups: [], tasks: [] };
+      const { id } = await backend.createBoardData("My Board", empty);
+      S.registry = [{ id, name: "My Board" }];
+      await backend.putBoards(S.registry);
+      S.ws.boardId = id;
+      renderBoardSelect();
+    }
+    if (S.ws.boardId) rememberBoard(wsId, S.ws.boardId);
+
+    // 4. Load it.
+    S.cloudReady = false;
+    if (S.ws.boardId) await loadFromCloud(); else render();
+
+    // Mark the workspace OPEN before the final UI refresh, and own that flag
+    // here rather than in session.js. updateWorkspaceButton() and
+    // renderMembers() both key off S.gate, so refreshing while it still said
+    // "picker" left the toolbar reading "Gantt" and the People section hidden
+    // until something happened to re-trigger them — clicking the title being
+    // one, which is why the workspace name appeared to update only on click.
+    S.gate = "open";
     updateCloudUI();
     closeCloud();
     startPolling();
-    requestAnimationFrame(() => { chartPane.scrollLeft = Math.max(0, dateToX(today()) - chartPane.clientWidth / 2); });
+    requestAnimationFrame(() => {
+      chartPane.scrollLeft = Math.max(0, dateToX(today()) - chartPane.clientWidth / 2);
+    });
     return true;
   } catch (err) {
-    const auth = /master key|unauthorized|401|403/i.test(err.message || "");
+    _lastError = friendlyError(err);
     setSync("err");
-    setCloudStatus(auth
-      ? "Couldn’t connect — a JSONBin Master Key is required (Access Keys can’t discover boards)."
-      : "Connect failed: " + err.message, "err");
+    setCloudStatus(_lastError, "err");
     return false;
   } finally {
     $("loading").classList.remove("show");
   }
 }
 
-// --- workspace registry (its name + its boards) ---
+// Firestore error codes are precise but not readable. permission-denied in
+// particular has one very likely cause here, and guessing wrong wastes the
+// user's time.
+export function friendlyError(err) {
+  const code = (err && err.code) || "";
+  switch (code) {
+    case "permission-denied":
+      return "You don't have permission for that — your access may have changed. Try reopening the workspace.";
+    case "not-found":
+      return "That workspace no longer exists, or you were removed from it.";
+    case "unavailable":
+    case "deadline-exceeded":
+      return "Couldn't reach the server. Your changes are kept locally until it's back.";
+    case "unauthenticated":
+      return "You're signed out. Sign in again to continue.";
+    case "failed-precondition":
+      return (err.message || "The server rejected that request.");
+    default:
+      return (err && err.message) || "Something went wrong.";
+  }
+}
+
+// --- the workspace record (its name + its board index) ---------------------
 export async function loadRegistry() {
   if (!cloudConnected()) return;
-  try {
-    const reg = await backend.getRegistry();
-    S.registry = reg.boards;
-    // A registry written before workspaces were named has no name. Adopt the
-    // default locally and backfill it remotely, once, so every device and every
-    // share-link recipient sees the same name from here on.
-    if (reg.name) S.workspaceName = reg.name;
-    else { S.workspaceName = DEFAULT_WORKSPACE_NAME; try { await saveRegistry(); } catch (_) {} }
-  } catch (err) {
-    console.warn("registry load failed:", err.message);
-  }
+  const reg = await backend.getRegistry();
+  S.registry = reg.boards;
+  // The workspace document is authoritative; the name we painted from cache may
+  // be stale (or absent on a first visit). Repaint here so this function leaves
+  // the UI consistent on its own, rather than relying on a later caller.
+  if (reg.name) { S.workspaceName = reg.name; updateWorkspaceButton(); }
   renderBoardSelect();
 }
-async function saveRegistry() { await backend.putRegistry(S.workspaceName, S.registry); }
 
 export function renderBoardSelect() {
   const sel = $("board-select");
   if (!sel) return;
-  sel.innerHTML = S.registry.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
-  if (S.cloud.binId && !S.registry.some(b => b.id === S.cloud.binId)) {
-    const o = document.createElement("option"); o.value = S.cloud.binId; o.textContent = "(current)"; sel.appendChild(o);
+  sel.innerHTML = S.registry.map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
+  if (S.ws.boardId && !S.registry.some((b) => b.id === S.ws.boardId)) {
+    const o = document.createElement("option");
+    o.value = S.ws.boardId; o.textContent = "(current)";
+    sel.appendChild(o);
   }
-  sel.value = S.cloud.binId || "";
+  sel.value = S.ws.boardId || "";
   fitBoardSelect();
 }
 
@@ -170,8 +163,8 @@ export function renderBoardSelect() {
 // short selected name.
 function fitBoardSelect() {
   const sel = $("board-select");
-  const opt = sel.selectedOptions && sel.selectedOptions[0];
-  if (!opt) { sel.style.width = ""; return; }
+  const opt = sel && sel.selectedOptions && sel.selectedOptions[0];
+  if (!opt) { if (sel) sel.style.width = ""; return; }
   const probe = document.createElement("span");
   probe.style.cssText = "position:absolute; visibility:hidden; white-space:nowrap;";
   probe.style.font = getComputedStyle(sel).font;
@@ -179,13 +172,17 @@ function fitBoardSelect() {
   document.body.appendChild(probe);
   const text = probe.getBoundingClientRect().width;
   probe.remove();
-  // left padding 14 + right padding (chevron) 28 + 2px borders
   sel.style.width = Math.ceil(Math.min(200, text + 44)) + "px";
 }
 
 export async function switchBoard(id) {
-  if (!id || id === S.cloud.binId) return;
-  S.cloud.binId = id; persistCloud();
+  if (!id || id === S.ws.boardId) return;
+  // Flush first, for the same reason leaveActiveWorkspace() does: saveToCloud()
+  // reads S.state at write time, so switching mid-save would push this board's
+  // content over the other one.
+  if (S.dirty && boardOpen() && canWrite()) await saveToCloud();
+  S.ws.boardId = id;
+  rememberBoard(S.ws.id, id);
   S.cloudReady = false;
   renderBoardSelect();
   $("loading").classList.add("show");
@@ -194,8 +191,8 @@ export async function switchBoard(id) {
 }
 
 async function newBoard() {
-  if (!requireEdit()) return; // was cloudConnected() only — no role, no lock check
-  if (!cloudConnected()) { toast("Cloud not configured"); return; }
+  if (!requireEdit()) return;
+  if (!cloudConnected()) { toast("No workspace is open"); return; }
   const name = (prompt("Name for the new board:", "New board") || "").trim();
   if (!name) return;
   setSync("syncing"); setCloudStatus("Creating board…", "");
@@ -204,37 +201,52 @@ async function newBoard() {
     const empty = { version: 1, settings: { viewMode: S.state.settings.viewMode || "week" }, groups: [], tasks: [] };
     const { id } = await backend.createBoardData(name, empty);
     S.registry.push({ id, name });
-    await saveRegistry();
-    S.cloud.binId = id; persistCloud();
+    await backend.putBoards(S.registry);
+    S.ws.boardId = id;
+    rememberBoard(S.ws.id, id);
     S.cloudReady = false;
     renderBoardSelect();
-    await loadFromCloud(); // pulls the (empty) board and arms autosave
+    await loadFromCloud();
     toast("Board “" + name + "” created ✓");
   } catch (err) {
-    setSync("err"); setCloudStatus("Create failed: " + err.message, "err");
-    toast("Create board failed: " + err.message);
+    setSync("err");
+    setCloudStatus(friendlyError(err), "err");
+    toast("Create board failed: " + friendlyError(err));
   } finally {
     $("loading").classList.remove("show");
   }
 }
 
 async function renameBoard() {
-  if (!requireEdit()) return; // was unguarded — #board-new/#c-rename were CSS-hidden only
+  if (!requireEdit()) return;
   if (!S.registry.length) { toast("No boards to rename"); return; }
-  const entry = S.registry.find(b => b.id === S.cloud.binId);
+  const entry = S.registry.find((b) => b.id === S.ws.boardId);
   const name = (prompt("Rename board:", entry ? entry.name : "") || "").trim();
   if (!name) return;
-  if (entry) entry.name = name; else S.registry.push({ id: S.cloud.binId, name });
-  try { await saveRegistry(); renderBoardSelect(); toast("Renamed ✓"); }
-  catch (err) { toast("Rename failed: " + err.message); }
+  const prev = entry ? entry.name : "";
+  if (entry) entry.name = name; else S.registry.push({ id: S.ws.boardId, name });
+  try {
+    // Both copies: the denormalized index the dropdown reads, and the board
+    // document's own name. Two writes is the cost of denormalizing the index
+    // onto the workspace doc, which is what makes the dropdown one read.
+    await backend.putBoards(S.registry);
+    await backend.renameBoard(S.ws.boardId, name);
+    renderBoardSelect();
+    toast("Renamed ✓");
+  } catch (err) {
+    if (entry) entry.name = prev;
+    renderBoardSelect();
+    toast("Rename failed: " + friendlyError(err));
+  }
 }
 
 // There is deliberately no delete-board action. Boards are the unit of shared
 // work and deletion is unrecoverable — the backend keeps no version history the
 // app can restore from, and a teammate's board would vanish under them with
-// nothing to undo. Retiring a board is a rename away.
+// nothing to undo. firestore.rules denies it outright too. Retiring a board is
+// a rename away; tools/admin can archive one.
 
-// --- workspace name + switcher ---
+// --- workspace name + the toolbar button ------------------------------------
 
 // The workspace button sits in the toolbar's title slot — the workspace you're
 // in is more useful there than the app's own name. Its tooltip also carries the
@@ -243,76 +255,44 @@ async function renameBoard() {
 // The browser tab is named the same way, so several workspaces open side by side
 // are tellable apart from the tab strip alone.
 export function updateWorkspaceButton() {
-  const conn = cloudConnected() && !S.cloudGate;
+  const conn = cloudConnected() && S.gate === "open";
   const name = S.workspaceName || DEFAULT_WORKSPACE_NAME;
   const label = $("cloud-label");
-  if (label) label.textContent = conn ? name : "Account";
+  if (label) label.textContent = conn ? name : "Gantt";
   document.title = conn ? (S.viewOnly ? `${name} (view only)` : name) : "Gantt";
-  $("cloud-btn").title = (conn ? `Workspace: ${name}` : "Account & cloud sync") + ` — sync: ${S.syncState}`;
+  const btn = $("cloud-btn");
+  if (btn) btn.title = (conn ? `Workspace: ${name}` : "Workspace") + ` — sync: ${S.syncState}`;
 }
 
-// Mirror the active workspace name into the panel's name field. Skipped while
-// the field has focus so a background refresh can't overwrite mid-edit.
+// Mirror the active workspace name into the panel's field. Skipped while the
+// field has focus so a background refresh can't overwrite mid-edit.
 function renderWorkspaceName() {
   const inp = $("c-ws-name");
   if (inp && document.activeElement !== inp) inp.value = S.workspaceName || "";
 }
 
-// One row per remembered workspace. Hidden entirely when nothing is remembered
-// (first run), so the gate stays a single "paste your key" step.
-function renderWorkspaceList() {
-  const box = $("c-ws-list");
-  if (!box) return;
-  const list = workspacesForDisplay();
-  const section = $("c-ws-section");
-  if (section) section.style.display = list.length ? "" : "none";
-  const activeIdNow = S.cloud.registryId || getActiveId();
-  box.innerHTML = list.map(w => {
-    const on = w.id && w.id === activeIdNow;
-    return `<div class="ws-row${on ? " active" : ""}" data-id="${esc(w.id)}" role="button" tabindex="0">` +
-             `<span class="ws-name">${esc(w.name || DEFAULT_WORKSPACE_NAME)}</span>` +
-             (on ? `<span class="ws-badge">current</span>` : "") +
-             `<button class="ws-forget" data-forget="${esc(w.id)}" title="Forget this workspace on this device">&times;</button>` +
-           `</div>`;
-  }).join("");
-}
-
-// Switch to another remembered workspace: drop what's loaded, then connect with
-// that workspace's own credential, registry and last board.
-export async function switchWorkspace(id) {
-  const w = findWorkspace(id);
-  if (!w) { toast("That workspace is no longer saved"); return; }
-  if (w.id && w.id === (S.cloud.registryId || getActiveId()) && !S.cloudGate) { closeCloud(); return; }
-  await leaveActiveWorkspace();
-  const ok = await connect(w.apiKey, { registryId: w.id, binId: w.binId, name: w.name, viewOnly: w.viewOnly });
-  if (ok) { toast(`Switched to “${S.workspaceName}” ✓`); return; }
-  // Nothing is loaded and the credential didn't work — re-gate rather than leave
-  // an empty board looking connected. The switcher stays available behind it.
-  S.cloudGate = true;
-  openCloud();
-}
-
-// Rename the active workspace. The name lives in the registry bin, so every
-// device and every share-link recipient sees it; the local list caches it.
+// Rename the workspace. Admin-only: the name lives on the workspace document,
+// and firestore.rules grants `name` changes to admins while granting `boards`
+// changes to editors. Attempting it as an editor would be rejected server-side.
 async function renameWorkspace(raw) {
-  if (!cloudConnected() || S.cloudGate) return;
-  if (!isAdmin()) { renderWorkspaceName(); return; } // the field is inert; don't write
+  if (!cloudConnected() || S.gate !== "open") return;
+  if (!isAdmin()) { renderWorkspaceName(); return; }
   const name = (raw || "").trim() || DEFAULT_WORKSPACE_NAME;
   const prev = S.workspaceName;
   if (name === prev) { renderWorkspaceName(); return; }
   S.workspaceName = name;
-  persistCloud(); updateWorkspaceButton(); renderWorkspaceList(); renderWorkspaceName();
+  updateWorkspaceButton(); renderWorkspaceName();
   try {
-    await saveRegistry();
+    await backend.putWorkspaceName(name);
     toast("Workspace renamed ✓");
   } catch (err) {
     S.workspaceName = prev;
-    persistCloud(); updateWorkspaceButton(); renderWorkspaceList(); renderWorkspaceName();
-    toast("Rename failed: " + err.message);
+    updateWorkspaceButton(); renderWorkspaceName();
+    toast("Rename failed: " + friendlyError(err));
   }
 }
 
-// --- teardown helpers (shared by switching, removing and logging out) ---
+// --- teardown ---------------------------------------------------------------
 
 function stopSync() {
   clearTimeout(S.autosaveTimer); S.autosaveTimer = null; S.firstDirtyAt = 0;
@@ -324,149 +304,120 @@ function stopSync() {
 // The pending save MUST complete before the board is cleared: saveToCloud()
 // merges from S.state at write time, so letting it run against the blanked
 // state would push an empty board over the user's data.
+//
+// The flush is gated on canWrite() and NOT canEdit(): a save already queued
+// while unlocked must still land even if the user re-locked in the meantime.
+// Using canEdit() here would silently drop legitimate edits.
 async function leaveActiveWorkspace() {
   stopSync();
-  if (S.dirty && cloudConnected() && S.cloud.binId) await saveToCloud(); // reports its own errors
+  if (S.dirty && boardOpen() && canWrite()) await saveToCloud();
   clearLoadedBoard();
 }
 
-// Drop the loaded account's data so nothing leaks into the next workspace or
+// Drop the loaded workspace's data so nothing leaks into the next one or shows
 // behind the gate.
 function clearLoadedBoard() {
+  S.suppressAutosave = true;
   S.registry = []; renderBoardSelect();
   S.cloudReady = false; S.baseState = null; S.loadedAt = 0;
-  S.state = { version: 1, settings: { viewMode: (S.state.settings && S.state.settings.viewMode) || "week" }, groups: [], tasks: [] };
+  S.state = {
+    version: 1,
+    settings: { viewMode: (S.state.settings && S.state.settings.viewMode) || "week" },
+    groups: [], tasks: []
+  };
   clearDirty(); render();
-}
-// No workspace to fall back to: re-gate and prompt for a key.
-function gateForNewKey() {
-  setActiveCloud({});
-  S.workspaceName = DEFAULT_WORKSPACE_NAME;
-  setViewOnly(false); // nothing is open; the next connect decides again
-  S.cloudGate = true;
-  document.body.classList.remove("ws-adding");
-  $("c-apikey").value = "";
-  updateCloudUI();
-  openCloud();
+  S.suppressAutosave = false;
 }
 
-// Forget the ACTIVE workspace on this device and fall back to the most recently
-// used survivor; re-gate when it was the last one. The account and its boards
-// are untouched — only this browser forgets the key.
-export async function removeActiveWorkspace() {
-  const id = S.cloud.registryId || getActiveId();
-  const name = S.workspaceName || DEFAULT_WORKSPACE_NAME;
-  if (!confirm(`Remove “${name}” from this browser?\nThe workspace and its boards stay on the account — you'll need the key again to get back in.`)) return;
+// Full release: tear down, THEN drop the pointer.
+//
+// S.ws must not be blanked until leaveActiveWorkspace() has resolved. Both
+// saveToCloud() and boardOpen() key off S.ws.boardId, so clearing it first
+// would make the flush a silent no-op and lose the user's last edits with no
+// error anywhere.
+export async function leaveWorkspace() {
   await leaveActiveWorkspace();
-  const next = forgetWorkspace(id);
-  if (next) {
-    await switchWorkspace(next.id);
-    toast(`Removed “${name}” — now in “${S.workspaceName}”`);
-  } else {
-    gateForNewKey();
-    toast(`Removed “${name}”`);
+  S.ws = { id: "", boardId: "" };
+  backend.wsId = null;
+  S.role = null;
+  S.workspaceName = DEFAULT_WORKSPACE_NAME;
+  clearMembers();
+  updateWorkspaceButton();
+}
+
+// Leave a workspace for good: delete my own member document. Distinct from
+// leaveWorkspace() above, which is just "stop looking at it".
+async function leaveForGood() {
+  if (!S.ws.id) return;
+  if (isAdmin()) {
+    toast("Admins can't remove themselves — ask another admin, or use tools/admin");
+    return;
+  }
+  const name = S.workspaceName;
+  if (!confirm(`Leave “${name}”?\nYou'll lose access until someone invites you again.`)) return;
+  const wsId = S.ws.id;
+  try {
+    await leaveWorkspace();
+    await leaveMembership(wsId);
+    toast(`Left “${name}”`);
+    // Re-run discovery so the gate reflects reality. Imported lazily to keep
+    // session.js -> boards.js one-directional at module level.
+    const { refreshMemberships } = await import("./session.js");
+    S.memberships = S.memberships.filter((m) => m.wsId !== wsId);
+    await refreshMemberships();
+  } catch (err) {
+    toast("Couldn't leave: " + friendlyError(err));
   }
 }
 
-// Forget every workspace and re-gate.
-export async function logoutAll() {
-  if (S.workspaces.length > 1 &&
-      !confirm(`Log out of all ${S.workspaces.length} workspaces on this browser?`)) return;
-  await leaveActiveWorkspace();
-  forgetAllWorkspaces();
-  gateForNewKey();
-}
-
-// --- account panel UI ---
+// --- panel UI ---------------------------------------------------------------
 export function updateCloudUI() {
-  const conn = cloudConnected() && !S.cloudGate;
+  const conn = cloudConnected() && S.gate === "open";
   document.body.classList.toggle("cloud-on", conn);
-  // While gated, hide the close button and the board-management controls — the
-  // only valid actions are pasting a key or picking a remembered workspace.
-  document.body.classList.toggle("cloud-gated", S.cloudGate);
-  $("c-close").style.display = S.cloudGate ? "none" : "";
   if (conn) {
     const n = S.registry.length;
-    const boards = n === 1 ? "1 board" : n + " boards";
-    setCloudStatus(`Connected to “${S.workspaceName}” ✓ — ${boards} on this account.`, "ok");
+    setCloudStatus(`“${S.workspaceName}” — ${n === 1 ? "1 board" : n + " boards"}.`, "ok");
     setSync("ok");
+  } else {
+    setSync("idle");
   }
-  else if (!S.cloudGate) { setSync("idle"); }
-  else { setCloudStatus("Paste your JSONBin Master Key to connect.", ""); setSync("idle"); }
+  const who = $("c-signed-in-as");
+  if (who) who.textContent = S.user ? `Signed in as ${S.user.email} — ${S.role || "?"} in this workspace.` : "";
   updateWorkspaceButton();
   renderWorkspaceName();
-  renderWorkspaceList();
+  renderMembers();
 }
+
 export function openCloud() {
-  if (!S.cloud.apiKey) $("c-apikey").value = "";
+  // The panel is only reachable with a workspace open; the gate handles every
+  // other state, so this no longer needs a non-dismissable mode.
+  if (S.gate !== "open") return;
   updateCloudUI();
   $("cloud-overlay").classList.add("show");
 }
-// Refuse to close while gated (no valid key yet).
 export function closeCloud() {
-  if (S.cloudGate) return;
-  document.body.classList.remove("ws-adding");
   $("cloud-overlay").classList.remove("show");
 }
 
-// Manual key entry. A pasted key must never inherit the CURRENT workspace's
-// registry or board — but if it belongs to a workspace we already remember,
-// reuse that one's cached ids instead of paying for discovery again.
-//
-// Typing the key yourself always grants editing: whoever holds the key is an
-// owner, so a workspace previously opened from a view-only link is promoted.
-async function connectWithKey(raw) {
-  const key = (raw || "").trim();
-  const known = S.workspaces.find(w => w.apiKey === key);
-  const ok = await connect(key, known
-    ? { registryId: known.id, binId: known.binId, name: known.name, viewOnly: false }
-    : { viewOnly: false });
-  if (ok) { document.body.classList.remove("ws-adding"); $("c-apikey").value = ""; }
-  return ok;
-}
-
-// --- wiring ---
+// --- wiring -----------------------------------------------------------------
 $("cloud-btn").addEventListener("click", openCloud);
 $("c-close").addEventListener("click", closeCloud);
-wireBackdropClose($("cloud-overlay"), closeCloud, () => !S.cloudGate);
-$("c-connect").addEventListener("click", () => { connectWithKey($("c-apikey").value); });
-$("c-logout").addEventListener("click", () => { removeActiveWorkspace(); });
-$("c-logout-all").addEventListener("click", () => { logoutAll(); });
-$("c-apikey").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); connectWithKey($("c-apikey").value); } });
-// workspace name: commit on blur or Enter (Escape reverts)
+wireBackdropClose($("cloud-overlay"), closeCloud);
 $("c-ws-name").addEventListener("change", (e) => { renameWorkspace(e.target.value); });
 $("c-ws-name").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
   if (e.key === "Escape") { e.preventDefault(); renderWorkspaceName(); e.target.blur(); }
 });
-// workspace switcher: a row switches, its × forgets
-$("c-ws-list").addEventListener("click", (e) => {
-  const forget = e.target.closest(".ws-forget");
-  if (forget) {
-    e.stopPropagation();
-    const id = forget.dataset.forget;
-    if (id && id === (S.cloud.registryId || getActiveId())) { removeActiveWorkspace(); return; }
-    const w = findWorkspace(id);
-    if (!w || !confirm(`Remove “${w.name || DEFAULT_WORKSPACE_NAME}” from this browser?`)) return;
-    forgetWorkspace(id); renderWorkspaceList();
-    return;
-  }
-  const row = e.target.closest(".ws-row");
-  if (row) switchWorkspace(row.dataset.id);
+$("c-ws-switch").addEventListener("click", async () => {
+  closeCloud();
+  const { showGate } = await import("./ui/gate.js");
+  S.gate = "picker";
+  showGate("picker", { email: S.user && S.user.email, memberships: S.memberships });
 });
-$("c-ws-list").addEventListener("keydown", (e) => {
-  const row = e.target.closest(".ws-row");
-  if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); switchWorkspace(row.dataset.id); }
-});
-// "Add workspace" reveals the key entry that's otherwise hidden once connected
-$("c-ws-add").addEventListener("click", () => {
-  const on = document.body.classList.toggle("ws-adding");
-  if (on) { $("c-apikey").value = ""; $("c-apikey").focus(); }
-});
-$("c-savenow").addEventListener("click", () => { saveToCloud(); });
+$("c-leave-ws").addEventListener("click", () => { leaveForGood(); });
+$("c-savenow").addEventListener("click", () => { if (requireEdit()) saveToCloud(); });
 $("c-create").addEventListener("click", () => { newBoard(); });
 $("c-rename").addEventListener("click", () => { renameBoard(); });
-// toolbar board switcher
 $("board-select").addEventListener("change", (e) => { switchBoard(e.target.value); });
 $("board-new").addEventListener("click", () => { newBoard(); });
 $("refresh-btn").addEventListener("click", () => { refreshNow(); });

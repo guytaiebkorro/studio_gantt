@@ -1,89 +1,59 @@
 // ---------------------------------------------------------------------------
 // Share links.
 //
-// A share link carries the workspace's credential in the URL fragment, so
-// opening it drops the recipient straight into the board with nothing to paste:
+// A link now carries NO SECRET. It names a workspace and a board, nothing more:
 //
-//   https://…/index.html#w1.<base64url({ k, r, b, n, p })>
+//   https://…/index.html#ws=<workspaceId>&b=<boardId>
 //
-//   k = credential   r = registry id   b = board to open   n = workspace name
-//   p = "view" | "edit"   (absent = edit, for links issued before p existed)
+// Following it grants nothing. The recipient still has to sign in with Google
+// and still has to have been invited to that workspace. Permission travels with
+// the PERSON — their member document — not with the URL, so one link works for
+// everybody and revoking someone doesn't mean re-issuing links to everyone else.
 //
-// A "view" link opens the board with editing switched off and the lock button
-// unable to open it (see S.viewOnly). That is an ACCIDENT GUARD, not a
-// permission: the credential is still in the link, so a recipient who wants to
-// write can read the key out of it and call the API directly. It stops
-// stakeholders from nudging a bar by mistake; it does not contain someone who
-// is trying. Only a real backend with server-side roles could do that.
+// This replaces a link that base64-encoded a JSONBin Master Key into the
+// fragment. That key was account-wide and unscopable, which is why the old
+// "view-only" link was, in the previous code's own words, an accident guard
+// rather than a permission: anyone could read the key out of the URL and write
+// directly to the API. There is no view-only link any more because there is no
+// need for one — give someone the viewer role and the SERVER enforces it.
 //
-// The FRAGMENT, not a query string: fragments are never sent to the server, so
-// the key stays out of hosting logs and Referer headers. It is also stripped
-// from the address bar the moment it's read (see consumeShareToken).
-//
-// Carrying r and b is what makes the link instant — the recipient skips the
-// bin-listing discovery pass and lands on the same board the sender was on.
-//
-// This is a bearer link, and the UI says so plainly: a JSONBin Master Key is
-// account-wide and cannot be scoped, so whoever holds the link has full
-// read/write/delete on every board in the workspace. base64url is encoding for
-// URL safety — NOT encryption.
+// Two consequences of carrying no secret, both deliberate:
+//   * The fragment is NOT stripped from the address bar. The old token had to be
+//     erased on sight so it couldn't be re-shared or resurrected from history;
+//     a plain permalink should stay bookmarkable and reloadable instead.
+//   * The link is safe in a Slack channel, a ticket, or an email.
 // ---------------------------------------------------------------------------
-import { DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { $, toast } from "./dom.js";
 import { S } from "./state.js";
 
-const PREFIX = "w1."; // version tag — bump if the payload shape changes
-
-// --- base64url <-> JSON (via UTF-8: keys are ASCII, workspace names aren't) ---
-function encode(obj) {
-  const bytes = new TextEncoder().encode(JSON.stringify(obj));
-  let bin = "";
-  bytes.forEach(b => { bin += String.fromCharCode(b); });
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function decode(token) {
-  let b64 = token.replace(/-/g, "+").replace(/_/g, "/");
-  while (b64.length % 4) b64 += "=";
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return JSON.parse(new TextDecoder().decode(bytes));
+// Absolute link to the active workspace + current board. "" when nothing is open.
+export function buildShareLink() {
+  if (!S.ws || !S.ws.id) return "";
+  const q = new URLSearchParams({ ws: S.ws.id });
+  if (S.ws.boardId) q.set("b", S.ws.boardId);
+  return location.href.split("#")[0] + "#" + q.toString();
 }
 
-// Absolute link to the active workspace + current board, in the given mode
-// ("view" or "edit"). "" when there's nothing to share yet.
-export function buildShareLink(mode) {
-  if (!S.cloud || !S.cloud.apiKey) return "";
-  const payload = {
-    k: S.cloud.apiKey,
-    r: S.cloud.registryId || "",
-    b: S.cloud.binId || "",
-    n: S.workspaceName || DEFAULT_WORKSPACE_NAME,
-    p: mode === "view" ? "view" : "edit"
-  };
-  return location.href.split("#")[0] + "#" + PREFIX + encode(payload);
-}
-
-// Read a share token out of the URL and remove it from the address bar in the
-// same breath, so it can't be re-shared from the location field or resurrected
-// from session history. Returns the target workspace, or null when there's no
-// token (or it's damaged, which is reported to the user).
-export function consumeShareToken() {
+// Read a target workspace/board out of the URL fragment.
+// Returns { wsId, boardId } or null.
+export function consumeShareTarget() {
   const hash = (location.hash || "").replace(/^#/, "");
-  if (!hash.startsWith(PREFIX)) return null;
-  stripHash();
-  try {
-    const p = decode(hash.slice(PREFIX.length));
-    if (!p || typeof p.k !== "string" || !p.k) throw new Error("no credential");
-    return {
-      apiKey: p.k, registryId: p.r || "", binId: p.b || "",
-      name: p.n || DEFAULT_WORKSPACE_NAME,
-      viewOnly: p.p === "view"   // absent/anything else = full editing
-    };
-  } catch (_) {
-    toast("That share link is damaged — ask for a new one");
+  if (!hash) return null;
+
+  // A link from the JSONBin era carries a LIVE CREDENTIAL in the fragment.
+  // Scrub it from the address bar and from session history immediately, then
+  // refuse it — we cannot honour it, and it must not linger somewhere it could
+  // be copied out and used against the old backend.
+  if (hash.startsWith("w1.")) {
+    stripHash();
+    toast("That link is from the old version — ask for a new one");
     return null;
   }
+
+  const p = new URLSearchParams(hash);
+  const wsId = p.get("ws");
+  if (!wsId) return null;
+  return { wsId, boardId: p.get("b") || "" };
 }
 
 function stripHash() {
@@ -111,16 +81,13 @@ function legacyCopy(text) {
   return ok;
 }
 
-async function copyShareLink(mode) {
-  if (S.cloudGate) { toast("Connect to a workspace first"); return; }
-  // A view-only session can't hand out edit links — it would undo the very
-  // restriction it's under. (It can still pass the view link along.)
-  if (mode === "edit" && S.viewOnly) { toast("This session is view-only"); return; }
-  const url = buildShareLink(mode);
-  if (!url) { toast("Connect to a workspace first"); return; }
-  const done = () => toast(mode === "view"
-    ? "View-only link copied — opens without editing, but still carries the key"
-    : "Edit link copied — it carries the workspace key, so treat it like a password");
+async function copyShareLink() {
+  // No viewOnly check: a viewer may absolutely share a link, because the link
+  // confers nothing. Under the old model handing out a link handed out write
+  // access, which is why that guard existed.
+  const url = buildShareLink();
+  if (!url) { toast("Open a workspace first"); return; }
+  const done = () => toast("Link copied — the recipient needs an invite to open it");
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(url);
@@ -129,9 +96,8 @@ async function copyShareLink(mode) {
     }
   } catch (_) { /* fall through */ }
   if (legacyCopy(url)) { done(); return; }
-  prompt("Copy this share link (it carries the workspace key):", url);
+  prompt("Copy this link:", url);
 }
 
 // --- wiring ---
-$("c-share-view").addEventListener("click", () => { copyShareLink("view"); });
-$("c-share-edit").addEventListener("click", () => { copyShareLink("edit"); });
+$("c-copy-link").addEventListener("click", () => { copyShareLink(); });

@@ -1,104 +1,48 @@
 // ---------------------------------------------------------------------------
-// Local persistence: the "Save to HTML file" fallback (used only when NOT
-// connected to a cloud backend), JSON export/import, and the unified save().
+// JSON export / import, and the unified save().
 //
-// NOTE: buildHtml() writes the current board JSON back into this page's
-// #gantt-data block and saves the document. Now that the app's logic lives in
-// external modules (src/*.js) and styles (styles/*.css), the saved file is no
-// longer fully self-contained — it must stay alongside those folders to run.
-// Since the cloud backend is the primary persistence path (and is the default),
-// this fallback is rarely reached. The logic is otherwise unchanged.
+// The "Save to HTML file" fallback is GONE, along with buildHtml(),
+// saveToFile(), downloadHtml() and the save-mode banner. Three reasons:
+//
+//   1. It was unreachable. The app now sits behind a sign-in gate, so there is
+//      no state in which you are running without a cloud backend.
+//   2. It had become actively misleading. buildHtml() cloned the live document,
+//      so the "backup" embedded the Firebase import map and config and would
+//      then sit at a file:// origin — where ES modules AND Firebase Auth are
+//      both blocked. It produced a file that looked like a backup and could
+//      never open.
+//   3. The header comment already conceded the saved file "must stay alongside
+//      those folders to run" once the app moved to external modules.
+//
+// Export JSON covers the real need — an offline snapshot you can re-import or
+// hand to tools/admin (`board:import` takes exactly this shape).
 // ---------------------------------------------------------------------------
 import { $, toast } from "./dom.js";
-import { S, normalize, clearDirty, markDirty, supportsFS } from "./state.js";
+import { S, normalize, markDirty } from "./state.js";
 import { canEdit, requireEdit } from "./permissions.js";
-import { saveToCloud, cloudConnected } from "./sync.js";
+import { saveToCloud, boardOpen } from "./sync.js";
 import { updateViewButtons } from "./ui/toolbar.js";
 import { render } from "./render/index.js";
 
-function serialize() { return JSON.stringify(S.state); }
-
-function buildHtml() {
-  // Clone the document and strip all runtime-generated DOM so the saved file
-  // stays lean (it self-rebuilds on load). Then splice fresh JSON into the
-  // data block via plain string replacement.
-  const root = document.documentElement.cloneNode(true);
-  const q = (sel) => root.querySelector(sel);
-  const li = q("#list-inner");      if (li) li.innerHTML = "";
-  const tv = q("#tasks-inner");     if (tv) tv.innerHTML = "";
-  const ch = q("#chart-header");    if (ch) ch.innerHTML = "";
-  const cb = q("#chart-body");
-  if (cb) cb.querySelectorAll(".grid-col, .row-line, .bar, .milestone, .ms-label, .gs-label").forEach(e => e.remove());
-  const svg = q("#dep-svg");        if (svg) svg.innerHTML = "";
-  // collapse open modals/toast so they don't persist as "shown"
-  root.querySelectorAll(".overlay").forEach(o => o.classList.remove("show"));
-  root.querySelectorAll(".toast").forEach(o => o.classList.remove("show"));
-  if (root.querySelector("body")) root.querySelector("body").classList.remove("dirty");
-
-  const html = "<!DOCTYPE html>\n<html lang=\"en\">" + root.innerHTML + "</html>\n";
-  const open = '<script type="application/json" id="gantt-data">';
-  const close = '<\/script>';
-  const i = html.indexOf(open);
-  if (i < 0) throw new Error("data block not found");
-  const j = html.indexOf(close, i);
-  if (j < 0) throw new Error("data block end not found");
-  return html.slice(0, i + open.length) + "\n" + serialize() + "\n" + html.slice(j);
-}
-
-async function saveToFile() {
-  let htmlOut;
-  try { htmlOut = buildHtml(); }
-  catch (err) { toast("Save failed: " + err.message); return; }
-
-  if (supportsFS) {
-    try {
-      if (!S.fileHandle) {
-        S.fileHandle = await window.showSaveFilePicker({
-          suggestedName: "gantt.html",
-          types: [{ description: "HTML", accept: { "text/html": [".html"] } }]
-        });
-      }
-      const w = await S.fileHandle.createWritable();
-      await w.write(htmlOut);
-      await w.close();
-      clearDirty();
-      toast("Saved ✓");
-    } catch (err) {
-      if (err && err.name === "AbortError") return; // user cancelled
-      toast("Save error: " + err.message);
-    }
-  } else {
-    downloadHtml(htmlOut);
-    clearDirty();
-    toast("Downloaded gantt.html — move it to your Dropbox folder");
-  }
-}
-
-function downloadHtml(htmlOut) {
-  const blob = new Blob([htmlOut], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "gantt.html";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-// Unified save: cloud when connected (cloud-only mode), else fall back to file/download.
+// Unified save. Everything autosaves as you edit; this is the Cmd/Ctrl+S path
+// for people who want to force it.
 export async function save() {
-  if (!canEdit()) return; // viewer, or locked: nothing to save
-  if (cloudConnected() && S.cloud.binId) return saveToCloud();
-  return saveToFile();
+  if (!canEdit()) return;              // viewer, or the board is locked
+  if (!boardOpen()) { toast("No board is open"); return; }
+  return saveToCloud();
 }
 
 // --- wiring ---
 $("save-btn").addEventListener("click", save);
 
-// Export JSON
+// Export JSON — a read, deliberately available to everyone including viewers.
 $("export-btn").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(S.state, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = "gantt-data.json";
+  const name = (S.registry.find((b) => b.id === S.ws.boardId) || {}).name || "gantt";
+  a.href = url;
+  a.download = name.replace(/[^\w.-]+/g, "-").toLowerCase() + ".json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 });
@@ -115,10 +59,13 @@ $("import-btn").addEventListener("click", () => {
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
-        if (!data.tasks) throw new Error("missing tasks");
+        if (!data.tasks) throw new Error("that file has no tasks array");
+        // Re-check: the file picker is async, so the role or lock could have
+        // changed between opening it and choosing a file.
+        if (!requireEdit()) return;
         S.state = normalize(data);
         markDirty(); updateViewButtons(); render();
-        toast("Imported ✓");
+        toast("Imported ✓ — autosaving to this board");
       } catch (err) { toast("Import failed: " + err.message); }
     };
     reader.readAsText(f);

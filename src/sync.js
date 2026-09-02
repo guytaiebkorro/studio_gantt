@@ -16,9 +16,23 @@ import { merge3, clone } from "./merge.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
 import { updateViewButtons } from "./ui/toolbar.js";
-import { openCloud, updateWorkspaceButton } from "./boards.js";
+import { updateWorkspaceButton } from "./boards.js";
+import { friendlyError, isPermissionDenied } from "./errors.js";
 
-export function cloudConnected() { return !!(S.cloud && S.cloud.apiKey); }
+// Signed in AND pointed at a workspace. No credential is involved any more —
+// identity lives in Firebase Auth, not in S.
+export function cloudConnected() { return !!(S.user && S.ws && S.ws.id); }
+
+// ...and a board is actually loadable/saveable. Replaces every
+// `cloudConnected() && S.ws.boardId` pair.
+export function boardOpen() { return cloudConnected() && !!S.ws.boardId; }
+
+// The active board's display name, for status text. Falls back to the id only
+// if the index somehow lacks it.
+function boardName() {
+  const b = S.registry && S.registry.find((x) => x.id === S.ws.boardId);
+  return (b && b.name) || S.ws.boardId || "board";
+}
 
 // --- status indicators ---
 const cloudDot = document.querySelector("#cloud-btn .cloud-dot");
@@ -42,14 +56,14 @@ function preserveAndRender() {
 }
 
 export async function loadFromCloud() {
-  if (!cloudConnected()) { toast("Add your JSONBin key first"); openCloud(); return; }
-  if (!S.cloud.binId) { toast("Set a bin id first"); openCloud(); return; }
-  setSync("syncing"); setCloudStatus("Loading bin " + S.cloud.binId + " …", "");
+  if (!cloudConnected()) { toast("No workspace is open"); return; }
+  if (!S.ws.boardId) { toast("No board selected"); return; }
+  setSync("syncing"); setCloudStatus("Loading " + boardName() + "…", "");
   try {
-    const u = await backend.loadBoard(S.cloud.binId);
-    if (!u) { // empty bin — nothing to load yet
+    const u = await backend.loadBoard(S.ws.boardId);
+    if (!u) { // empty board — nothing to load yet
       S.baseState = clone(S.state); S.loadedAt = 0; S.cloudReady = true;
-      setSync("ok"); setCloudStatus("Empty bin — edits will populate it.", ""); return;
+      setSync("ok"); setCloudStatus("Empty board — edits will populate it.", ""); return;
     }
     S.suppressAutosave = true;
     S.state = normalize(u.data);
@@ -58,11 +72,11 @@ export async function loadFromCloud() {
     clearDirty(); updateViewButtons(); render();
     S.suppressAutosave = false;
     S.cloudReady = true;
-    setSync("ok"); setCloudStatus("Loaded bin " + S.cloud.binId, "ok");
+    setSync("ok"); setCloudStatus("Loaded " + boardName(), "ok");
     toast("Loaded from cloud ✓");
   } catch (err) {
-    setSync("err"); setCloudStatus("Load failed: " + err.message, "err");
-    toast("Cloud load failed: " + err.message);
+    setSync("err"); setCloudStatus("Load failed: " + friendlyError(err), "err");
+    toast("Couldn't load the board: " + friendlyError(err));
     render(); // show whatever we have so the board isn't stuck behind the loading veil
   }
 }
@@ -70,14 +84,14 @@ export async function loadFromCloud() {
 // Save the whole board. Loads the latest first and 3-way-merges so teammates'
 // edits to other items aren't lost. Used by autosave (debounced) and "Save now".
 export async function saveToCloud() {
-  if (!cloudConnected() || !S.cloud.binId) return;
+  if (!boardOpen()) return;
   if (S.savePromise) { S.saveAgain = true; return S.savePromise; } // coalesce overlapping saves
   setSync("syncing");
   S.savePromise = (async () => {
     try {
       // poll-before-write: fold in any remote changes since we loaded
       let remote = null;
-      try { remote = await backend.loadBoard(S.cloud.binId); } catch (_) {}
+      try { remote = await backend.loadBoard(S.ws.boardId); } catch (_) {}
       if (remote && remote.updatedAt && remote.updatedAt !== S.loadedAt) {
         const merged = merge3(S.baseState || remote.data, S.state, remote.data);
         S.suppressAutosave = true;
@@ -85,19 +99,58 @@ export async function saveToCloud() {
         preserveAndRender();
         S.suppressAutosave = false;
       }
-      const { updatedAt } = await backend.saveBoard(S.cloud.binId, S.state);
+      const { updatedAt } = await backend.saveBoard(S.ws.boardId, S.state);
       S.loadedAt = updatedAt;
       S.baseState = clone(S.state);
       clearDirty();
-      setSync("ok"); setCloudStatus("Saved to bin " + S.cloud.binId, "ok");
+      setSync("ok"); setCloudStatus("Saved " + boardName(), "ok");
     } catch (err) {
-      setSync("err"); setCloudStatus("Save failed: " + err.message, "err");
-      toast("Cloud save failed: " + err.message);
+      handleWriteError(err);
     }
   })();
-  await S.savePromise;
-  S.savePromise = null;
+  try {
+    await S.savePromise;
+  } finally {
+    // MUST be cleared in a finally. Firestore writes do not reject when offline
+    // — they sit queued indefinitely — and the coalescing guard above returns
+    // early whenever S.savePromise is set. Clearing it only on the happy path
+    // meant one offline blip wedged autosave permanently, leaving a
+    // beforeunload warning the user could never clear. (fetch always settled,
+    // so this was safe against JSONBin and is not against Firestore.)
+    S.savePromise = null;
+  }
   if (S.saveAgain) { S.saveAgain = false; return saveToCloud(); } // flush edits made mid-save
+}
+
+// A write can fail because this user's role changed while the tab was open.
+// Do NOT clearDirty() on that path: the edits exist only locally, and dropping
+// the flag would discard them silently. Stop autosaving, tell the user plainly,
+// and re-read the role so the UI stops offering edits it can't make.
+function handleWriteError(err) {
+  const msg = friendlyError(err);
+  setSync("err");
+  setCloudStatus(msg, "err");
+  if (isPermissionDenied(err)) {
+    clearTimeout(S.autosaveTimer); S.autosaveTimer = null; S.firstDirtyAt = 0;
+    toast("Your access to this workspace changed — your edits are still here, but can't be saved");
+    reassertRole();
+    return;
+  }
+  toast("Save failed: " + msg);
+}
+
+// Re-read my role from the server and adopt it. Imported lazily to avoid adding
+// another edge to the state -> sync -> boards cycle at module-evaluation time.
+async function reassertRole() {
+  try {
+    const [{ getMyRole }, { applyRole }, { applyLockUI }] = await Promise.all([
+      import("./memberships.js"), import("./permissions.js"), import("./ui/toolbar.js")
+    ]);
+    const role = await getMyRole(S.ws.id);
+    applyRole(role);          // null -> viewer, which is the safe direction
+    applyLockUI();
+    render();
+  } catch (_) { /* best effort; the next write will surface it again */ }
 }
 
 // Batched autosave: wait for a pause in editing (idle), but never hold edits
@@ -105,7 +158,7 @@ export async function saveToCloud() {
 export function scheduleCloudSave() {
   // canEdit() rather than !S.locked: a viewer must never even SCHEDULE a write,
   // so we don't queue saves that the server can only reject.
-  if (!cloudConnected() || !S.cloud.binId || S.suppressAutosave || !S.cloudReady || !canEdit()) return;
+  if (!boardOpen() || S.suppressAutosave || !S.cloudReady || !canEdit()) return;
   setSync("pending");
   const now = Date.now();
   if (!S.firstDirtyAt) S.firstDirtyAt = now;
@@ -124,7 +177,7 @@ function uiBusy() { return S.dragging || !!document.querySelector(".overlay.show
 
 // Returns true if something new was pulled in.
 export async function syncFromRemote() {
-  const remote = await backend.loadBoard(S.cloud.binId);
+  const remote = await backend.loadBoard(S.ws.boardId);
   if (!remote || !remote.updatedAt || remote.updatedAt <= S.loadedAt) return false; // nothing new
   if (S.dirty) {
     // we have local edits — merge remote in, then let autosave push the result
@@ -141,7 +194,7 @@ export async function syncFromRemote() {
   return true;
 }
 async function pollTick() {
-  if (!cloudConnected() || !S.cloud.binId || !S.cloudReady) return;
+  if (!boardOpen() || !S.cloudReady) return;
   if (document.hidden || uiBusy() || S.savePromise) return; // don't disturb active work / save
   try { await syncFromRemote(); } catch (_) { /* transient; try again next tick */ }
 }
@@ -157,7 +210,7 @@ export function refreshOnActivate() {
   activateTimer = setTimeout(async () => {
     activateTimer = null;
     if (uiBusy() || S.savePromise) return; // don't disturb active work / an in-flight save
-    if (cloudConnected() && S.cloud.binId && S.cloudReady) {
+    if (boardOpen() && S.cloudReady) {
       try { await syncFromRemote(); } catch (_) { /* transient; polling/next activate retries */ }
     }
     preserveAndRender(); // always re-render for the fresh clock, even with no remote change
@@ -166,12 +219,12 @@ export function refreshOnActivate() {
 
 // Manual one-shot refresh (one load). Bound to the 🔄 toolbar button.
 export async function refreshNow() {
-  if (!cloudConnected() || !S.cloud.binId) { toast("Cloud not configured"); return; }
+  if (!boardOpen()) { toast("No board is open"); return; }
   if (uiBusy()) { toast("Finish your current edit first"); return; }
   setSync("syncing");
   try {
     const changed = await syncFromRemote();
     setSync("ok");
     toast(changed ? "Refreshed ✓" : "Already up to date");
-  } catch (err) { setSync("err"); toast("Refresh failed: " + err.message); }
+  } catch (err) { setSync("err"); toast("Refresh failed: " + friendlyError(err)); }
 }
