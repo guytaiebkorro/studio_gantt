@@ -51,7 +51,7 @@ window.addEventListener("focus", refreshOnActivate);
 // --- startup ---
 function init() {
   renderSwatches();
-  applyLockUI();       // start read-only
+  applyLockUI();       // paint the access indicator from the role we have so far
   updateViewButtons();
   updateModeButtons(); // restore the saved gantt/tasks view before first render
   updateCloudUI();

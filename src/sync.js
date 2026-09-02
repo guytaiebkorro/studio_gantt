@@ -163,8 +163,8 @@ async function reassertRole() {
 // Batched autosave: wait for a pause in editing (idle), but never hold edits
 // longer than the max cap. Collapses a burst of edits into one save.
 export function scheduleCloudSave() {
-  // canEdit() rather than !S.locked: a viewer must never even SCHEDULE a write,
-  // so we don't queue saves that the server can only reject.
+  // canEdit() gates this: a viewer must never even SCHEDULE a write, so we
+  // don't queue saves that the server can only reject.
   if (!boardOpen() || S.suppressAutosave || !S.cloudReady || !canEdit()) return;
   setSync("pending");
   const now = Date.now();

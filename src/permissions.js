@@ -9,14 +9,11 @@
 // that could dispatch a click (devtools, a keyboard path, a stale stylesheet, a
 // modal left open across a lock toggle) could still write.
 //
-// Two orthogonal things decide whether a write is allowed:
-//
-//   ROLE  — what the server says you may do. admin > editor > viewer.
-//           A viewer can never write, and cannot unlock.
-//   LOCK  — S.locked, an accident guard for people who CAN write. It defaults
-//           to true on every launch so a stray trackpad swipe can't nudge a bar
-//           while you're reading. A permission system can't express "I didn't
-//           mean that", which is why this is separate from role.
+// ROLE decides, and nothing else: admin > editor > viewer, assigned by the
+// server. A viewer can never write; an editor can always edit. There used to be
+// a second, per-session lock the user toggled from the toolbar; it is gone, and
+// the toolbar chip is now a pure readout of the role. `S.locked` survives only
+// as a derived mirror of !canWrite() for the CSS that hides edit affordances.
 //
 // Import rule: this module imports S but never dereferences it at module-eval
 // time, only inside function bodies. That keeps it safe to import from anywhere
@@ -60,35 +57,26 @@ export function canAssignRole(r) {
   return isAdmin() || (canInvite() && r !== "admin");
 }
 
-// Role-level write permission, ignoring the lock. Use this for decisions that
-// must survive a lock toggle — most importantly flushing an already-queued save,
-// which must still land if the user re-locked while it was in flight.
+// Role-level write permission.
 export function canWrite() { return atLeast("editor"); }
 
 // The predicate for "may this edit happen right now". Use in render and
-// predicate paths, where a silent false is the right answer.
-export function canEdit() { return canWrite() && !S.locked; }
+// predicate paths, where a silent false is the right answer. Identical to
+// canWrite() now that the lock is gone; kept as the name every chart-mutation
+// path already calls, and as the seam if a second condition ever returns.
+export function canEdit() { return canWrite(); }
 
 // Same test, but it explains itself. Use in click handlers: a refusal with no
 // feedback reads as a bug.
 export function requireEdit() {
   if (canEdit()) return true;
-  if (!canWrite()) toast("You have view-only access to this workspace");
-  else toast("Click “View only” in the toolbar to start editing");
+  toast("You have view-only access to this workspace");
   return false;
 }
 
 // Role-only gate for WORKSPACE MANAGEMENT — creating and renaming boards,
-// renaming the workspace, inviting people.
-//
-// Deliberately ignores S.locked, unlike requireEdit(). The lock exists to stop
-// a stray trackpad swipe nudging a bar on the chart; clicking "New board" in a
-// panel you opened on purpose is not that. Making someone unlock the chart
-// before they can add a board conflates an accident guard with a permission.
-//
-// Chart mutations (task edit/delete/duplicate, drag, import) still go through
-// requireEdit() and still respect the lock, because those ARE the thing the
-// lock protects.
+// renaming the workspace, inviting people. Same test as requireEdit() today;
+// the two names still mark which surface a refusal came from.
 export function requireWrite() {
   if (canWrite()) return true;
   toast("You have view-only access to this workspace");
@@ -104,7 +92,7 @@ export function requireWrite() {
 export function applyRole(r) {
   S.role = ROLES[r] ? r : "viewer";
   S.viewOnly = !canWrite();
-  if (S.viewOnly) S.locked = true; // a viewer's lock is held shut
+  S.locked = S.viewOnly; // derived: the CSS mirror of "you may not write"
   document.body.classList.toggle("view-only", S.viewOnly);
   document.body.classList.toggle("role-editor", canWrite());
   document.body.classList.toggle("role-admin", isAdmin());

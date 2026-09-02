@@ -62,12 +62,6 @@
 }
 
 /* ---------- Viewer role ---------- */
-/* The lock button stops being a toggle: it reports state and nothing more. */
-#lock-btn.fixed {
-  background: var(--chip-bg); border-color: var(--border); color: var(--muted);
-  cursor: default; box-shadow: none;
-}
-#lock-btn.fixed:hover { background: var(--chip-bg); border-color: var(--border); }
 /* NOTE: there is deliberately no rule hiding the share button from viewers.
    A link now carries no credential and grants nothing, so a viewer sharing one
    is harmless — under the old model it handed out write access. */
@@ -87,6 +81,10 @@
 .toast.show { opacity: 1; }
 
 /* ---------- View-only (locked) mode ---------- */
+/* #lock-btn is an indicator, not a control: it wears the .btn pill so it sits
+   with the toolbar, but nothing about it invites a click. The id beats
+   `.btn:hover`, so both states stay put under the cursor. */
+#lock-btn { cursor: default; user-select: none; }
 #lock-btn.locked { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-text); }
 #lock-btn.editing { background: var(--ok); border-color: var(--ok); color: #fff; }
 /* Presentation only. Every one of these ALSO has a JS guard — see
@@ -95,12 +93,15 @@
 body.locked #add-task, body.locked #add-milestone, body.locked #add-group,
 body.locked #import-btn, body.locked #save-btn,
 body.locked #f-save, body.locked #f-delete, body.locked #f-duplicate,
-/* A viewer can never write, so hide the affordances outright rather than
-   relying on the lock (which they cannot open anyway). */
+/* `body.locked` is now set from the role too, so these repeat the rules above
+   on purpose: the two classes are applied by different functions, and a hidden
+   Save button should not depend on both having run. */
 body:not(.role-editor) #add-task, body:not(.role-editor) #add-milestone,
 body:not(.role-editor) #add-group,
-body:not(.role-editor) #import-btn, body:not(.role-editor) #save-btn,
-body:not(.role-editor) #lock-btn { display: none !important; }
+body:not(.role-editor) #import-btn,
+body:not(.role-editor) #save-btn { display: none !important; }
+/* #lock-btn is NOT hidden from viewers — telling them why the edit buttons are
+   missing is the whole point of it. */
 /* the editor opens read-only while locked */
 body.locked #editor-overlay .body input,
 body.locked #editor-overlay .body select,

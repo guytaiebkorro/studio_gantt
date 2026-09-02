@@ -23,7 +23,9 @@ export const S = {
   rangeEnd: null,
   lastColor: null,             // remembers the last custom color picked, to reuse on new tasks
   dragging: false,             // true during a bar/milestone/row drag (pauses cloud refresh)
-  locked: true,                // app starts view-only every launch; lock button toggles editing
+  locked: false,               // DERIVED from the role by permissions.applyRole() / applyLockUI():
+                               // true when you may not write. Drives `body.locked` CSS only — it is
+                               // no longer a lock the user can toggle.
   viewOnly: false,             // DERIVED from S.role by permissions.applyRole() — true when the
                                // server says you're a viewer. Never written from a link or from
                                // localStorage, so it cannot be stale and a reload cannot promote you.

@@ -27,10 +27,8 @@ $("g-cancel").addEventListener("click", closeGroupEditor);
 wireBackdropClose(gOverlay, closeGroupEditor);
 
 // Guarded even though openGroupEditor() gates opening: this modal can outlive
-// the permission that opened it. toggleLock() closes the task editor but used
-// not to close this one, so unlock -> open -> re-lock left a live Save button
-// that `body.locked` CSS does not hide. toggleLock() now closes it too; this is
-// the other half of that fix.
+// the permission that opened it — a live sync can demote you to viewer while
+// it stands open, and `body.locked` CSS does not hide #g-save.
 $("g-save").addEventListener("click", () => {
   if (!requireEdit()) return;
   const name = $("g-name").value.trim() || "Group";

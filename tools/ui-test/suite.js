@@ -515,6 +515,25 @@ for (const [role, want] of Object.entries(MATRIX)) {
   ck(`${role}: sees the roster`, members().length, 2);
 }
 
+// --- the toolbar's access chip reports the role, and does nothing else -----
+// Importing toolbar.js also wires it, which is the point: if the chip were
+// still a toggle, the click below would flip it.
+await import("../../src/ui/toolbar.js");
+const { canEdit } = await import("../../src/permissions.js");
+const chip = $("lock-btn");
+for (const [role, editing] of [["viewer", false], ["editor", true], ["admin", true]]) {
+  await setup(role);
+  const label = editing ? "Editing" : "View only";
+  ck(`${role}: chip reads ${label}`, chip.textContent.trim(), label);
+  ck(`${role}: chip state class`, chip.classList.contains("editing"), editing);
+  ck(`${role}: body.locked mirrors the role`, document.body.classList.contains("locked"), !editing);
+  ck(`${role}: canEdit follows the role alone`, canEdit(), editing);
+  chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await sleep(20);
+  ck(`${role}: chip click changes nothing`, chip.textContent.trim() + canEdit(), label + editing);
+}
+ck("chip is not a button", chip.tagName, "SPAN");
+
 // And the guards hold when the view is bypassed entirely.
 const boards3 = await import("../../src/boards.js");
 for (const role of ["viewer"]) {

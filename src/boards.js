@@ -275,9 +275,8 @@ function stopSync() {
 // merges from S.state at write time, so letting it run against the blanked
 // state would push an empty board over the user's data.
 //
-// The flush is gated on canWrite() and NOT canEdit(): a save already queued
-// while unlocked must still land even if the user re-locked in the meantime.
-// Using canEdit() here would silently drop legitimate edits.
+// The flush is gated on canWrite(), the role-level test: a save already queued
+// must still land as we leave.
 async function leaveActiveWorkspace() {
   stopSync();
   if (S.dirty && boardOpen() && canWrite()) await saveToCloud();
