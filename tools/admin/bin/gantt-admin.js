@@ -42,6 +42,15 @@ gantt-admin — provision and manage Gantt workspaces
   board:export <wsId> <boardId> [--out board.json]
   board:import <wsId> --file board.json [--name "Name"]
 
+  import:jsonbin <wsId> --key-env JB_KEY [--registry <binId>] [--dry-run] [--keep-starter]
+      One-time migration off the old JSONBin backend. Reads the account's
+      registry bin and every board it lists, applies the app's board invariants,
+      and writes them into an EXISTING workspace. Reuses each bin id as the
+      Firestore document id, so re-running overwrites rather than duplicates.
+      Removes the empty starter board unless --keep-starter.
+      Prefer --key-env over --key: a command line ends up in your shell history,
+      and a Master Key is an unscopable account-wide credential. Rotate it after.
+
 Notes
   * A member document IS the invite. Adding someone who has never signed in is
     normal and expected — they get access the moment they sign in with Google.
@@ -224,6 +233,29 @@ async function main() {
         wsId: pos[0], board, name: flags.name === true ? undefined : flags.name
       });
       console.log(`Imported ${r.tasks} tasks into "${r.wsId}" as "${r.name}" (${r.boardId}).`);
+      break;
+    }
+
+    case "import:jsonbin": {
+      if (!pos[0]) throw new Error("Usage: import:jsonbin <wsId> --key-env JB_KEY [--dry-run]");
+      const key = flags["key-env"] && flags["key-env"] !== true
+        ? process.env[flags["key-env"]]
+        : (flags.key !== true ? flags.key : undefined);
+      if (!key) {
+        throw new Error(
+          "No JSONBin Master Key. Preferred:\n" +
+          "  export JB_KEY='<master key>'\n" +
+          "  node bin/gantt-admin.js import:jsonbin <wsId> --key-env JB_KEY"
+        );
+      }
+      const { importJsonbin } = await import("../src/import-jsonbin.js");
+      await importJsonbin({
+        key,
+        wsId: pos[0],
+        registryId: flags.registry !== true ? flags.registry : undefined,
+        dryRun: !!flags["dry-run"],
+        replaceEmptyStarter: !flags["keep-starter"]
+      });
       break;
     }
 

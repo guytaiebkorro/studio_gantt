@@ -229,7 +229,14 @@ export async function boardList({ wsId }) {
     let tasks = null, groups = null;
     try { const parsed = JSON.parse(b.data || "{}"); tasks = (parsed.tasks || []).length; groups = (parsed.groups || []).length; }
     catch (_) { /* leave null — reported as unreadable */ }
-    actual.set(d.id, { name: b.name, bytes: (b.data || "").length, tasks, groups, archived: !!b.archived });
+    // UTF-8 bytes, not string length. The size cap is in bytes, and any emoji
+    // in a task name is 2 UTF-16 units but 4 UTF-8 bytes — so string length
+    // under-reports exactly where it matters most.
+    actual.set(d.id, {
+      name: b.name,
+      bytes: Buffer.byteLength(b.data || "", "utf8"),
+      tasks, groups, archived: !!b.archived
+    });
   });
 
   // Report drift between the denormalized index and the actual subcollection.
