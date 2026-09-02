@@ -1,0 +1,94 @@
+/* ============================================================
+   WORKSPACE PANEL — a 360px slide-over from the left.
+
+   The visual language is STRUCTURAL, not a palette change: tall rows,
+   pill chips, real elevation, generous vertical rhythm, one hairline per
+   region instead of bordered sub-boxes, and the accent colour used ONLY
+   to mean "current". A redesign that keeps the same geometry reads as no
+   change at all.
+   ============================================================ */
+
+/* Scrim. Deliberately NOT .overlay: uiBusy() in src/sync.js matches
+   ".overlay.show" to mean "an edit is in progress", and would suppress polling
+   and refresh-on-activate for as long as the panel were open. */
+.panel-scrim {
+  position: fixed; inset: 0; z-index: 150;
+  background: var(--overlay);
+  opacity: 0;
+  transition: opacity .16s ease;
+}
+body.panel-open .panel-scrim { opacity: 1; }
+
+.ws-panel {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 151;
+  width: 360px; max-width: 88vw;
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  box-shadow: var(--shadow);
+  transform: translateX(-100%);
+  transition: transform .22s cubic-bezier(.32,.72,0,1);
+  font-family: var(--font-body);
+  color: var(--text);
+}
+body.panel-open .ws-panel { transform: translateX(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-panel { transition: opacity .12s ease; transform: none; opacity: 0; }
+  body.panel-open .ws-panel { opacity: 1; }
+  .panel-scrim { transition: none; }
+}
+
+/* ---------- account ---------- */
+.wp-account {
+  display: flex; gap: 12px; align-items: center;
+  padding: 18px 20px 16px;
+}
+.wp-avatar {
+  width: 36px; height: 36px; flex: 0 0 36px;
+  border-radius: var(--radius-pill);
+  background: var(--accent); color: var(--accent-text);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 15px; font-weight: 600;
+  background-size: cover; background-position: center;
+  user-select: none;
+}
+.wp-who { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.wp-name {
+  font-family: var(--font-display); font-size: 15px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wp-mail {
+  font-size: 12px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- scroll body ---------- */
+.wp-scroll {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.wp-caption {
+  margin: 16px 10px 6px;
+  font-size: 10.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted);
+}
+
+/* ---------- footer ---------- */
+.wp-foot {
+  display: flex; gap: 4px; align-items: center;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.wp-ghost {
+  font: inherit; font-size: 12.5px; color: var(--muted);
+  background: none; border: none; border-radius: var(--radius-sm);
+  padding: 8px 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.wp-ghost:hover { background: var(--hover); color: var(--text); }
+.wp-ghost:focus-visible { outline: none; box-shadow: var(--glow-accent); }
+.wp-foot #wp-signout { margin-left: auto; }

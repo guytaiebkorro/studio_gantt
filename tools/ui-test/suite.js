@@ -85,4 +85,38 @@ ck("harness: registry from the stub", S.registry.map((b) => b.name).join(","), "
 ck("harness: role applied", S.role, "admin");
 ck("harness: gate is open", S.gate, "open");
 
+// --- T2: panel shell ------------------------------------------------------
+const panel = await import("../../src/ui/panel.js");
+panel.wirePanel({});
+
+ck("panel starts closed", panel.isPanelOpen(), false);
+panel.openPanel();
+ck("panel opens", panel.isPanelOpen(), true);
+ck("body gets .panel-open", document.body.classList.contains("panel-open"), true);
+ck("panel is aria-hidden=false when open", $("ws-panel").getAttribute("aria-hidden"), "false");
+// If the panel were an .overlay, uiBusy() in sync.js would treat it as an
+// in-progress edit and suppress polling / refresh-on-activate the whole time
+// it is open. A nav panel must not do that.
+ck("panel is NOT an .overlay", $("ws-panel").classList.contains("overlay"), false);
+ck("scrim is visible when open", $("ws-scrim").hidden, false);
+
+panel.closePanel();
+ck("panel closes", panel.isPanelOpen(), false);
+ck("body loses .panel-open", document.body.classList.contains("panel-open"), false);
+
+panel.openPanel();
+window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+await sleep(40);
+ck("Escape closes the panel", panel.isPanelOpen(), false);
+
+panel.openPanel();
+$("ws-scrim").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+await sleep(40);
+ck("clicking the scrim closes the panel", panel.isPanelOpen(), false);
+
+let signedOut = false;
+panel.wirePanel({ onSignOut: () => { signedOut = true; } });
+$("wp-signout").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("sign out reports through the callback", signedOut, true);
+
 rep("__DONE__");

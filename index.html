@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="styles/chart.css">
 <link rel="stylesheet" href="styles/tasksview.css">
 <link rel="stylesheet" href="styles/modals.css">
+<link rel="stylesheet" href="styles/panel.css">
 <script>
   /* Apply the saved theme before first paint to avoid a flash.
      Default is the warm light theme (no attribute); only an explicit saved
@@ -285,6 +286,39 @@
     </div>
   </div>
 </div>
+
+<!-- Workspace navigation: a slide-over owning workspaces, their boards, and
+     People. src/ui/panel.js owns this and nothing else.
+
+     Deliberately NOT an .overlay. uiBusy() in src/sync.js matches
+     ".overlay.show" to mean "an edit is in progress" and suppresses polling and
+     refresh-on-activate; a nav panel being open is not an edit. The invite
+     dialog below IS an .overlay, because a modal dialog should pause syncing. -->
+<div class="panel-scrim" id="ws-scrim" hidden></div>
+<aside class="ws-panel" id="ws-panel" aria-label="Workspaces" aria-hidden="true">
+  <header class="wp-account">
+    <div class="wp-avatar" id="wp-avatar" aria-hidden="true"></div>
+    <div class="wp-who">
+      <span class="wp-name" id="wp-name"></span>
+      <span class="wp-mail" id="wp-mail"></span>
+    </div>
+  </header>
+
+  <div class="wp-scroll">
+    <p class="wp-caption">Workspaces</p>
+    <div id="wp-workspaces"></div>
+    <p class="wp-caption" id="wp-people-caption">People</p>
+    <div id="wp-people"></div>
+  </div>
+
+  <footer class="wp-foot">
+    <button class="wp-ghost" id="wp-copy-link" title="Copy a link to this board">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0-7.07-7.07L10 5.93"/><path d="M14 11a5 5 0 0 0-7.07 0L5.5 12.4a5 5 0 0 0 7.07 7.07L14 18.07"/></svg>
+      Copy board link
+    </button>
+    <button class="wp-ghost" id="wp-signout">Sign out</button>
+  </footer>
+</aside>
 
 <!-- Startup gate. NON-DISMISSABLE by construction: no close button, no
      wireBackdropClose, and main.js's Escape handler deliberately does not name
