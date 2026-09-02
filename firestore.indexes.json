@@ -1,0 +1,40 @@
+{
+  "//": "Deploy indexes BEFORE rules, and both before pointing the app at the project. Two traps: (1) the Firestore emulator does NOT enforce index requirements, so the members.email collection-group query works locally and fails in production with FAILED_PRECONDITION; (2) `firebase deploy --only firestore:indexes` DELETES indexes and field overrides absent from this file, so anything created by clicking a console error link must be written back here or it vanishes on the next deploy. `gantt-admin doctor` re-checks both.",
+
+  "indexes": [],
+
+  "fieldOverrides": [
+    {
+      "//": "CORRECTNESS REQUIREMENT, not an optimization. Firestore auto-indexes every field, and there is a hard cap of 40,000 index entries and 8 MiB of index-entry size PER DOCUMENT — past which the write is rejected outright. A board document holds the entire serialized board, which we never query by. Turning indexing off for the whole collection group is therefore free. If this exemption ever silently reverts (see trap 2 above), boards start accumulating index entries again and you find out months later as a rejected save. Unfiltered collection('boards').get() still works, because ordering by __name__ never needs a declared index.",
+      "collectionGroup": "boards",
+      "fieldPath": "*",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "//": "Never queried by the app. The CLI's workspace:list does an unfiltered scan and sorts in memory. Add an ownerEmail entry with COLLECTION/ASCENDING if the CLI ever needs where('ownerEmail','==',...).",
+      "collectionGroup": "workspaces",
+      "fieldPath": "*",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "//": "Hygiene: role, uid, invitedBy, claimedAt and protected are never queried, so don't index them. The email entry below re-enables exactly what is needed.",
+      "collectionGroup": "members",
+      "fieldPath": "*",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "//": "The membership query: collectionGroup('members').where('email','==',myEmail). Automatic single-field indexes are COLLECTION-scoped only — 'automatic indexes with collection group scope are not maintained by default' — so the COLLECTION_GROUP entry is mandatory. The two COLLECTION entries are mandatory too, and not decorative: a fieldOverrides entry REPLACES automatic indexing for that field, so listing only the collection-group scope would leave email with no collection-scoped index at all. Harmless today; silently broken the first time anyone writes a single-collection where('email', ...).",
+      "collectionGroup": "members",
+      "fieldPath": "email",
+      "ttl": false,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}

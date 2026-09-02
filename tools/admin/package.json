@@ -1,0 +1,15 @@
+{
+  "name": "gantt-admin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Admin CLI for the Gantt app's Firebase backend. Provisions workspaces and manages members. Never loaded by the browser.",
+  "bin": { "gantt-admin": "./bin/gantt-admin.js" },
+  "scripts": {
+    "gantt-admin": "node ./bin/gantt-admin.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

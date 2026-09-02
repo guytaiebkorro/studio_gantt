@@ -6,6 +6,7 @@ import { listInner, esc, toast } from "../dom.js";
 import { progressOf } from "../dates.js";
 import { icon } from "../icons.js";
 import { S, isCollapsed, toggleCollapse, markDirty, childrenOf } from "../state.js";
+import { canEdit } from "../permissions.js";
 import { render } from "./index.js";
 import { openEditor } from "../ui/editor.js";
 import { openGroupEditor } from "../ui/groupEditor.js";
@@ -24,7 +25,12 @@ function detach(dragged) {
   return kids;
 }
 
+// The three drag-drop mutations below are guarded here rather than at each drop
+// handler: gating `draggable` and `dragstart` is not enough, because a drop can
+// arrive from an external drag source or from a stale S.dragTaskId left over
+// from before a lock toggle or a role change.
 function reorderTaskRelativeTo(targetTask, after) {
+  if (!canEdit()) return;
   if (!S.dragTaskId || S.dragTaskId === targetTask.id) return;
   const dragged = S.state.tasks.find(x => x.id === S.dragTaskId);
   if (!dragged) return;
@@ -51,6 +57,7 @@ function reorderTaskRelativeTo(targetTask, after) {
 
 // Drop onto the middle of a top-level row → become its subtask.
 function nestTaskUnder(parentTask) {
+  if (!canEdit()) return;
   if (!S.dragTaskId || S.dragTaskId === parentTask.id) return;
   const dragged = S.state.tasks.find(x => x.id === S.dragTaskId);
   if (!dragged || parentTask.parentId) return;
@@ -69,6 +76,7 @@ function nestTaskUnder(parentTask) {
 }
 
 function moveTaskToGroupTop(groupId) {
+  if (!canEdit()) return;
   if (!S.dragTaskId) return;
   const dragged = S.state.tasks.find(x => x.id === S.dragTaskId);
   if (!dragged) return;
@@ -142,10 +150,10 @@ export function renderList(rows) {
         add.addEventListener("click", (e) => { e.stopPropagation(); openEditor(null, { parentId: t.id }); });
         el.appendChild(add);
       }
-      // drag to reorder (disabled while view-only)
-      el.draggable = !S.locked;
+      // drag to reorder (disabled without edit rights)
+      el.draggable = canEdit();
       el.addEventListener("dragstart", (e) => {
-        if (S.locked) { e.preventDefault(); return; }
+        if (!canEdit()) { e.preventDefault(); return; }
         S.dragTaskId = t.id; S.dragging = true;
         if (e.dataTransfer) {
           e.dataTransfer.effectAllowed = "move";

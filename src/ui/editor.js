@@ -5,6 +5,7 @@
 import { COLORS } from "../config.js";
 import { $, esc, toast, wireBackdropClose } from "../dom.js";
 import { S, markDirty, snapshot, restoreState, uid, childrenOf, subtreeIds, colorOf } from "../state.js";
+import { canEdit, requireEdit } from "../permissions.js";
 import { today, fmtD, addDays, parseD } from "../dates.js";
 import { render } from "../render/index.js";
 
@@ -12,7 +13,9 @@ const edOverlay = $("editor-overlay");
 
 // `preset` seeds a NEW task: { groupId, parentId }.
 export function openEditor(id, preset) {
-  if (S.locked && !id) return; // can't add while view-only (existing items open read-only)
+  // Can't ADD without edit rights; existing items still open read-only, which is
+  // deliberate — a viewer should be able to inspect a task's details.
+  if (!canEdit() && !id) return;
   preset = preset || {};
   S.editingId = id;
   const t = id ? S.state.tasks.find(x => x.id === id) : null;
@@ -179,7 +182,9 @@ $("f-cancel").addEventListener("click", closeEditor);
 wireBackdropClose(edOverlay, closeEditor);
 
 $("f-save").addEventListener("click", () => {
-  if (S.locked) return;
+  // requireEdit rather than a silent return: refusing with no feedback reads as
+  // a bug, and this modal opens read-only for viewers so the button is reachable.
+  if (!requireEdit()) return;
   const name = $("f-name").value.trim() || "Untitled";
   const prev = S.editingId ? S.state.tasks.find(x => x.id === S.editingId) : null;
   // older saved-HTML shells have no description field — keep the stored value
@@ -233,6 +238,7 @@ $("f-save").addEventListener("click", () => {
 // Deleting a parent takes its subtasks with it, the same way deleting a group
 // takes its tasks — one Undo restores the whole subtree.
 $("f-delete").addEventListener("click", () => {
+  if (!requireEdit()) return;
   if (!S.editingId) return;
   const snap = snapshot();
   const kidCount = childrenOf(S.editingId).length;
@@ -243,14 +249,17 @@ $("f-delete").addEventListener("click", () => {
   removed.forEach(rid => S.selectedIds.delete(rid));
   if (removed.has(S.selectedId)) S.selectedId = null;
   markDirty(); closeEditor(); render();
+  // The Undo button can outlive a lock toggle or a role change, and restoring
+  // writes — so it is guarded like any other mutation.
   toast(kidCount ? `Task + ${kidCount} subtask${kidCount > 1 ? "s" : ""} deleted` : "Task deleted",
-        "Undo", () => restoreState(snap));
+        "Undo", () => { if (requireEdit()) restoreState(snap); });
 });
 
 // Duplicating a parent copies the whole subtree with fresh ids. Dependencies
 // INSIDE the subtree are remapped onto the copies; links pointing outside are
 // kept as-is.
 $("f-duplicate").addEventListener("click", () => {
+  if (!requireEdit()) return;
   if (!S.editingId) return;
   const orig = S.state.tasks.find(x => x.id === S.editingId);
   if (!orig) return;

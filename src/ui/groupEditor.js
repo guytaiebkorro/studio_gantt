@@ -4,12 +4,13 @@
 // ---------------------------------------------------------------------------
 import { $, toast, wireBackdropClose } from "../dom.js";
 import { S, markDirty, snapshot, restoreState, uid, pickColor } from "../state.js";
+import { canEdit, requireEdit } from "../permissions.js";
 import { render } from "../render/index.js";
 
 const gOverlay = $("group-overlay");
 
 export function openGroupEditor(id) {
-  if (S.locked) return; // view-only
+  if (!canEdit()) return; // viewer, or the board is locked
   S.editingGroupId = id || null;
   const g = id ? S.state.groups.find(x => x.id === id) : null;
   $("group-title").textContent = id ? "Edit Group" : "Add Group";
@@ -25,7 +26,11 @@ export function closeGroupEditor() { gOverlay.classList.remove("show"); S.editin
 $("g-cancel").addEventListener("click", closeGroupEditor);
 wireBackdropClose(gOverlay, closeGroupEditor);
 
+// Guarded even though openGroupEditor() gates opening: this modal can outlive
+// the permission that opened it — a live sync can demote you to viewer while
+// it stands open, and `body.locked` CSS does not hide #g-save.
 $("g-save").addEventListener("click", () => {
+  if (!requireEdit()) return;
   const name = $("g-name").value.trim() || "Group";
   const color = $("g-color").value;
   if (S.editingGroupId) {
@@ -37,6 +42,7 @@ $("g-save").addEventListener("click", () => {
 });
 
 $("g-delete").addEventListener("click", () => {
+  if (!requireEdit()) return;
   if (!S.editingGroupId) return;
   const snap = snapshot();
   const gid = S.editingGroupId;
@@ -50,5 +56,8 @@ $("g-delete").addEventListener("click", () => {
   S.state.groups = S.state.groups.filter(x => x.id !== gid);
   markDirty(); closeGroupEditor(); render();
   const n = childIds.length;
-  toast(n ? `Group + ${n} task${n > 1 ? "s" : ""} deleted` : "Group deleted", "Undo", () => restoreState(snap));
+  // The Undo button can outlive a lock toggle or a role change, and restoring
+  // writes — so it is guarded like any other mutation.
+  toast(n ? `Group + ${n} task${n > 1 ? "s" : ""} deleted` : "Group deleted",
+        "Undo", () => { if (requireEdit()) restoreState(snap); });
 });

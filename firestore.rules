@@ -1,0 +1,332 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// Gantt app — Firestore Security Rules
+//
+// Hierarchy:
+//   /workspaces/{ws}                        provisioned by the admin CLI ONLY
+//   /workspaces/{ws}/members/{emailLower}   the ACL. doc id == lowercased email
+//   /workspaces/{ws}/boards/{boardId}       one whole board document each
+//
+// Roles: admin > editor > viewer.
+//   admin  — everything in the workspace, incl. role changes and removals
+//   editor — edit + create boards, invite editors/viewers (NEVER admins)
+//   viewer — read only
+//
+// THE MEMBER DOCUMENT IS THE INVITE. It is keyed by lowercased email rather
+// than uid, which means a workspace can be provisioned for someone who has
+// never signed in (no uid exists yet), the permission lookup is a deterministic
+// path derived from the token's email (one get(), no index), and invite and
+// membership can never drift apart. There is deliberately no separate invites
+// collection and no "claim" step: with two collections, revoking a member means
+// deleting two documents, and any stale unconsumed invite lets the revoked user
+// walk straight back in on their next sign-in.
+//
+// Rules are a PERMISSIVE UNION: every match block whose path matches is
+// evaluated, and any single satisfied `allow` grants the request. There is no
+// `deny`. So each block below must be safe in isolation — and the console's
+// default `match /{document=**} { allow read, write: if request.auth != null; }`
+// must NEVER be added back, because it would silently shadow everything here.
+//
+// get()/exists() are BILLED DOCUMENT READS, capped at 10 per single-document or
+// query request and 20 per multi-document read, transaction or batched write.
+// Worst case below is 4 (two myRole() evaluations across one `||`).
+// Budget note: one board save costs 1 write + 2 rules reads.
+// ---------------------------------------------------------------------------
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== identity =========================================================
+
+    // Google-only, verified-email-only. Pinning the provider is deliberate: it
+    // blocks Firebase's account-linking / pre-account-hijacking class of attacks
+    // and stops another provider (anonymous, email/password) being enabled later
+    // by accident and becoming a way to assert someone else's address. Relax
+    // this ONE function to add a provider.
+    //
+    // `request.auth.token.email` is documented as present only "if present", so
+    // the key is probed with `in` before it is read. An evaluation error in
+    // rules denies the request, so either way an emailless token gets nothing.
+    function googleVerified() {
+      return request.auth != null
+          && request.auth.uid != null
+          && request.auth.token.firebase.sign_in_provider == 'google.com'
+          && 'email' in request.auth.token
+          && request.auth.token.email is string
+          && 'email_verified' in request.auth.token
+          && request.auth.token.email_verified == true;
+    }
+
+    function me() { return request.auth.token.email.lower(); }
+
+    // Conservative ASCII email. Deliberately narrower than RFC 5321: a quoted
+    // local part may legally contain '/', which is ILLEGAL in a Firestore
+    // document id — and here the document id IS the email.
+    function isEmail(s) {
+      return s is string
+          && s.size() >= 5 && s.size() <= 320
+          && s.matches('^[a-z0-9][a-z0-9._%+-]*@[a-z0-9][a-z0-9.-]*[.][a-z]{2,}$');
+    }
+
+    // ===== membership =======================================================
+
+    function memberRef(ws) {
+      return /databases/$(database)/documents/workspaces/$(ws)/members/$(me());
+    }
+
+    // 'none' for a non-member, so callers never dereference a null resource.
+    // exists() + get() rather than a null check on get(): exists() returns a
+    // bool, which keeps this expression total.
+    function myRole(ws) {
+      return googleVerified() && exists(memberRef(ws))
+        ? get(memberRef(ws)).data.role
+        : 'none';
+    }
+
+    function onlyChanged(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // ===== workspaces =======================================================
+
+    match /workspaces/{ws} {
+
+      // Any member reads the workspace doc: it holds the display name and the
+      // board registry ([{id,name}]) the toolbar dropdown is built from.
+      allow get: if myRole(ws) in ['admin', 'editor', 'viewer'];
+
+      // Never enumerable. Membership is discovered via the collection-group
+      // query on /members, never by scanning workspaces.
+      allow list: if false;
+
+      // Provisioning and destruction are Admin-SDK only. This is what makes
+      // "workspaces are set up by the repo owner" actually enforceable.
+      allow create: if false;
+      allow delete: if false;
+
+      // Field-level: editors maintain the board index, admins also rename.
+      // ownerEmail, createdAt, createdBy, schemaVersion and archived are
+      // immutable to every client.
+      allow update: if (
+             ( myRole(ws) == 'admin'  && onlyChanged(['name', 'boards']) )
+          || ( myRole(ws) == 'editor' && onlyChanged(['boards']) )
+        )
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.boards is list
+        && request.resource.data.boards.size() <= 200;
+
+      // ===== boards =========================================================
+
+      match /boards/{boardId} {
+
+        // Every field a client may ever write, and nothing else.
+        function validBoard() {
+          return request.resource.data.keys().hasOnly(
+                   ['name','data','updatedAt','updatedAtServer','updatedBy','rev',
+                    'createdAt','createdBy','archived'])
+              && request.resource.data.name is string
+              && request.resource.data.name.size() > 0
+              && request.resource.data.name.size() <= 200
+
+              // The board document, JSON-encoded. A string rather than a nested
+              // map because Firestore rejects `undefined` (JSON.stringify drops
+              // it, so the board round-trips exactly), and because auto-indexing
+              // an array of ten-field task maps would generate ~20 index entries
+              // per task and hit the hard 40,000-entries-per-document limit at
+              // roughly 2,000 tasks — at which point the write is REJECTED, long
+              // before the 1 MiB document limit is near. See firestore.indexes.json,
+              // which exempts this collection group from indexing entirely.
+              //
+              // The tradeoff: rules cannot validate the board's SHAPE. A size
+              // guard is the more useful check anyway — the writer is already an
+              // authenticated editor, so shape validation would only protect
+              // against our own buggy client.
+              && request.resource.data.data is string
+              && request.resource.data.data.size() <= 900000
+
+              // updatedAt is a CLIENT Date.now(), because src/sync.js compares it
+              // (`remote.updatedAt !== S.loadedAt`) and keeping the scheme makes
+              // sync.js/merge.js a zero-diff migration. Bounded so a hostile or
+              // broken client cannot write 9e15 and permanently pin every other
+              // client into "remote is always newer". 5 min absorbs honest skew.
+              //
+              // Written as (is int || is float) rather than `is number` because
+              // whether the JS SDK serializes an integral JS number as an integer
+              // or a double is an implementation detail. Do not "simplify" this.
+              && (request.resource.data.updatedAt is int ||
+                  request.resource.data.updatedAt is float)
+              && request.resource.data.updatedAt > 0
+              && request.resource.data.updatedAt <= request.time.toMillis() + 300000
+
+              // A server-trusted clock for free: the client sends
+              // serverTimestamp() and the resolved sentinel equals request.time.
+              && request.resource.data.updatedAtServer == request.time
+              && request.resource.data.updatedBy == request.auth.uid
+              && request.resource.data.rev is int
+              && request.resource.data.archived is bool;
+        }
+
+        // `list` is allowed but the app must never use it: every board document
+        // carries its whole task list, so listing the collection would download
+        // every board. Build the dropdown from workspaces/{ws}.boards instead.
+        allow get, list: if myRole(ws) in ['admin', 'editor', 'viewer'];
+
+        allow create: if myRole(ws) in ['admin', 'editor']
+          && validBoard()
+          && request.resource.data.rev == 0
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.archived == false;
+
+        allow update: if myRole(ws) in ['admin', 'editor']
+          && validBoard()
+          // provenance is immutable
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdBy == resource.data.createdBy
+          // PHASE 9 — optimistic concurrency. Poll-before-write in sync.js is a
+          // read-then-write TOCTOU: two clients can both read, both merge, and
+          // both write, and the second silently overwrites the first's merge.
+          // This line makes the loser's write fail.
+          //
+          // Uncomment ONLY in the same commit as the sync.js conflict retry.
+          // On its own it turns every concurrent save into a permanent
+          // "Save failed" while users keep editing on top of unsaved state.
+          // Note also that a lost race and a genuine permission error both
+          // return PERMISSION_DENIED and must be told apart by re-reading.
+          // && request.resource.data.rev == resource.data.rev + 1
+          ;
+
+        // The app has no delete-board action by design (see the comment at
+        // src/boards.js:229) — retiring a board is a rename away. The CLI uses
+        // the `archived` flag.
+        allow delete: if false;
+      }
+
+      // ===== members (the ACL; the member document IS the invite) ============
+
+      match /members/{memberId} {
+
+        // Every member sees the member list — needed for the People panel and to
+        // know whom to ask for access. Narrow to ['admin','editor'] if viewers
+        // should not see colleagues' addresses.
+        allow get, list: if myRole(ws) in ['admin', 'editor', 'viewer'];
+
+        // --- create == invite -------------------------------------------------
+        // Note: a write to an ALREADY EXISTING document is classified `update`,
+        // not `create`, whether the client used setDoc or updateDoc. So this
+        // branch cannot be used to overwrite an existing member's role.
+        allow create: if googleVerified()
+
+          // doc id is a well-formed, lowercased email, and the field agrees
+          && memberId == memberId.lower()
+          && isEmail(memberId)
+          && request.resource.data.email == memberId
+
+          // exact key set — no extra fields, no missing fields, nulls explicit.
+          // hasOnly + hasAll makes "field absent" and "field null" the same
+          // thing and removes every default-value fallback from these rules.
+          && request.resource.data.keys().hasOnly(
+               ['email','role','uid','displayName','invitedBy','invitedAt','claimedAt','protected'])
+          && request.resource.data.keys().hasAll(
+               ['email','role','uid','displayName','invitedBy','invitedAt','claimedAt','protected'])
+
+          && request.resource.data.role in ['admin', 'editor', 'viewer']
+
+          // an invite starts unclaimed and unprotected
+          && request.resource.data.uid         == null
+          && request.resource.data.claimedAt   == null
+          && request.resource.data.displayName == null
+          && request.resource.data.protected   == false
+
+          // non-forgeable audit trail
+          && request.resource.data.invitedBy == me()
+          && request.resource.data.invitedAt == request.time
+
+          // who may invite whom: only admins make admins.
+          && ( request.resource.data.role == 'admin'
+                 ? myRole(ws) == 'admin'
+                 : myRole(ws) in ['admin', 'editor'] );
+
+          // OPTIONAL admin kill-switch for editor invites. Rules cannot count,
+          // so an editor mass-inviting to burn quota is not blockable; this is
+          // the lever if that ever matters. Costs one extra rules read per
+          // invite, which is nothing since invites are rare. Uncomment both
+          // lines and add `inviteLock: false` to the workspace doc:
+          // && ( myRole(ws) == 'admin' ||
+          //      get(/databases/$(database)/documents/workspaces/$(ws)).data.inviteLock == false )
+
+        // --- update -----------------------------------------------------------
+        allow update: if googleVerified()
+          // nobody may modify the CLI-provisioned founding admin
+          && resource.data.protected == false
+          // identity is immutable
+          && request.resource.data.email == resource.data.email
+          && (
+            // (a) an admin changes SOMEONE ELSE's role. Never their own — that
+            //     is what stops any self-promotion path existing at all, and
+            //     stops an admin demoting themselves into a workspace with no
+            //     admin left. (Rules cannot count, so two admins CAN concurrently
+            //     demote each other; the `protected` founder is the backstop.)
+            (
+              myRole(ws) == 'admin'
+              && memberId != me()
+              && onlyChanged(['role'])
+              && request.resource.data.role in ['admin', 'editor', 'viewer']
+            )
+            ||
+            // (b) I bind my own identity on first sign-in / refresh my profile.
+            //     `role` is not in the allowed key set, so this can never grant
+            //     a permission — it only fills in diagnostic fields.
+            (
+              memberId == me()
+              && onlyChanged(['uid', 'displayName', 'claimedAt'])
+              && request.resource.data.uid == request.auth.uid
+              && (request.resource.data.displayName == null ||
+                  (request.resource.data.displayName is string &&
+                   request.resource.data.displayName.size() <= 120))
+              && (request.resource.data.claimedAt == null ||
+                  request.resource.data.claimedAt == request.time)
+            )
+          );
+
+        // --- delete == revoke / leave ------------------------------------------
+        allow delete: if googleVerified()
+          && resource.data.protected == false
+          && (
+               ( myRole(ws) == 'admin' && memberId != me() )        // admin revokes another
+               ||
+               ( memberId == me() && resource.data.role != 'admin' ) // non-admin leaves
+             );
+      }
+    }
+
+    // ===== collection-group: "which workspaces am I in?" ======================
+    //
+    // A rule scoped to /workspaces/{ws}/members/{id} does NOT authorize a
+    // collection-group query on `members`; that needs this recursive-wildcard
+    // block. Collection-group rules cannot be anchored to a parent path, so this
+    // matches ANY collection named `members` at any depth — acceptable here
+    // because nothing else in the schema is named `members` and no rule permits
+    // creating one elsewhere.
+    //
+    // `list` ONLY, never `get`. Adding `get` here would let any signed-in user
+    // read a member document at a guessed path whose email happens to be their
+    // own — harmless in isolation, but exactly the kind of widening that compounds.
+    //
+    // Rules for queries are evaluated against the QUERY, not the returned
+    // documents: Firestore must be able to PROVE from the query's constraints
+    // that no forbidden document can come back, or it rejects the whole request.
+    //   .where('email','==', <my email>)     -> provable, allowed
+    //   .where('email','==','victim@x.com')  -> provably false, rejected
+    //   no filter at all                     -> unprovable, rejected
+    // That is what makes membership non-enumerable.
+    //
+    // Requires a COLLECTION_GROUP-scoped index on members.email — automatic
+    // single-field indexes are collection-scoped only. See firestore.indexes.json.
+    match /{path=**}/members/{memberId} {
+      allow list: if googleVerified() && resource.data.email == me();
+    }
+  }
+}

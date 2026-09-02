@@ -1,0 +1,29 @@
+# The app itself is dependency-free and buildless — it is served straight off
+# GitHub Pages as native ES modules. Only the tooling under tools/ has deps, and
+# GitHub Pages serves the WHOLE repo, so these must never be committed.
+tools/*/node_modules/
+node_modules/
+
+# Firebase CLI local state
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Emulator data dumps
+emulator-data/
+
+# Never commit a service-account key. The admin CLI uses Application Default
+# Credentials (gcloud auth application-default login) precisely so that no
+# long-lived private key ever lands on disk — but belt and braces.
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+.env
+.env.local
+
+# macOS / editor cruft
+.DS_Store
+.idea/
+
+# UI test harness scratch
+tools/ui-test/.profile/

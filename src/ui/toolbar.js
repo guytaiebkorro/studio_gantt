@@ -1,13 +1,14 @@
 // ---------------------------------------------------------------------------
 // Toolbar: add task / milestone / group, the Day/Week/Month view switch, the
-// Today jump, and view-only (lock) mode.
+// Today jump, and the read-only / editing indicator.
 // ---------------------------------------------------------------------------
 import { VIEWTAB_KEY } from "../config.js";
-import { $, chartPane, toast } from "../dom.js";
+import { $, chartPane } from "../dom.js";
 import { S, markDirty } from "../state.js";
+import { canEdit, canWrite } from "../permissions.js";
 import { xToDate, dateToX, dayWidth, today } from "../dates.js";
 import { render } from "../render/index.js";
-import { openEditor, toggleMilestoneUI, closeEditor } from "./editor.js";
+import { openEditor, toggleMilestoneUI } from "./editor.js";
 import { openGroupEditor } from "./groupEditor.js";
 import { icon } from "../icons.js";
 
@@ -46,32 +47,28 @@ export function setViewTab(mode) {
   }
 }
 
-// --- view-only (lock) mode ---
+// --- edit-access indicator ---
 //
-// Two distinct things share this button. `S.locked` is the per-session lock the
-// user toggles at will. `S.viewOnly` means the workspace was opened from a
-// view-only share link: the lock is held shut and the button stops being a
-// toggle at all (see setViewOnly in boards.js).
+// This is a readout, not a control. Whether you may edit is decided entirely by
+// your ROLE on the server (see permissions.js) — an editor can always edit. The
+// chip used to double as a per-session lock the user could toggle, which made
+// one button mean two different things: "I may not write" and "I don't want to
+// write yet". Only the first is real, so only the first is shown.
 export function applyLockUI() {
+  const editing = canWrite();
+  // `S.locked` survives as the mirror that `body.locked` CSS keys off to hide
+  // the edit affordances; it is now derived, never toggled.
+  S.locked = !editing;
   document.body.classList.toggle("locked", S.locked);
   const btn = $("lock-btn");
-  btn.classList.toggle("locked", S.locked && !S.viewOnly);
-  btn.classList.toggle("editing", !S.locked);
-  btn.classList.toggle("fixed", S.viewOnly);
-  btn.innerHTML = S.viewOnly
-    ? icon("lock") + "<span>View only</span>"
-    : (S.locked ? icon("lock") + "<span>View only</span>" : icon("unlock") + "<span>Editing</span>");
-  btn.title = S.viewOnly
-    ? "Opened from a view-only link — editing is off for this workspace"
-    : (S.locked ? "Read-only — click to start editing" : "Editing — click to lock (view only)");
-  btn.setAttribute("aria-disabled", S.viewOnly ? "true" : "false");
-}
-function toggleLock() {
-  if (S.viewOnly) { toast("This workspace was opened from a view-only link"); return; }
-  S.locked = !S.locked;
-  if (S.locked) closeEditor();
-  applyLockUI();
-  render(); // refresh draggable state on list rows etc.
+  btn.classList.toggle("locked", !editing);
+  btn.classList.toggle("editing", editing);
+  btn.innerHTML = editing
+    ? icon("unlock") + "<span>Editing</span>"
+    : icon("lock") + "<span>View only</span>";
+  btn.title = editing
+    ? "Your role lets you edit this workspace"
+    : "You have view-only access to this workspace";
 }
 
 // --- wiring ---
@@ -92,14 +89,17 @@ $("view-seg").addEventListener("click", (e) => {
   // remember the date currently centered in the viewport, then restore it
   const centerDate = xToDate(chartPane.scrollLeft + chartPane.clientWidth / 2);
   S.state.settings.viewMode = b.dataset.view;
-  markDirty(); updateViewButtons(); render();
+  // Zooming is a READ affordance and stays available to everyone — but viewMode
+  // is stored in the board document, so marking it dirty without edit rights
+  // would queue a save that can only ever fail. Apply the zoom locally instead.
+  if (canEdit()) markDirty();
+  updateViewButtons(); render();
   chartPane.scrollLeft = Math.max(0, dateToX(centerDate) + dayWidth() / 2 - chartPane.clientWidth / 2);
 });
 if ($("mode-seg")) $("mode-seg").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   setViewTab(b.dataset.mode);
 });
-$("lock-btn").addEventListener("click", toggleLock);
 
 // --- text filter: show only rows whose task (or group) name matches ---
 $("filter-input").addEventListener("input", (e) => {
