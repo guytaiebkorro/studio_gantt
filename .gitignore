@@ -24,3 +24,6 @@ serviceAccount*.json
 # macOS / editor cruft
 .DS_Store
 .idea/
+
+# UI test harness scratch
+tools/ui-test/.profile/
