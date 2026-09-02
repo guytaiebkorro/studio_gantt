@@ -231,7 +231,9 @@ function renderWorkspaces() {
     const role = m.role || "viewer";
     return `<div class="wp-ws${active ? " active" : ""}" data-ws="${esc(m.wsId)}">` +
         `<div class="wp-ws-head" role="button" tabindex="0" aria-expanded="${active}">` +
-          `<span class="wp-chev" aria-hidden="true">${active ? "▾" : "▸"}</span>` +
+          // An SVG chevron rotated by CSS. The ▾/▸ glyphs rendered as
+          // near-invisible dots at this size.
+          `<svg class="wp-chev" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>` +
           `<span class="wp-ws-name">${esc(m.name || m.wsId)}</span>` +
           `<span class="wp-role role-${esc(role)}">${esc(role)}</span>` +
           // Rare and destructive actions live behind a menu on the ACTIVE row

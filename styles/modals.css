@@ -21,7 +21,7 @@
 .modal h3 svg { width: 17px; height: 17px; flex: 0 0 auto; }
 .modal .body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 .modal label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; font-weight: 700; }
-.modal input[type=text], .modal input[type=date], .modal input[type=number], .modal select, .modal textarea {
+.modal input[type=text], .modal input[type=email], .modal input[type=date], .modal input[type=number], .modal select, .modal textarea {
   width: 100%; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 10px;
   font-size: 13px; font-family: inherit; background: var(--input-bg); color: var(--text);
 }
