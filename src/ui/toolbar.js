@@ -5,10 +5,11 @@
 import { VIEWTAB_KEY } from "../config.js";
 import { $, chartPane, toast } from "../dom.js";
 import { S, markDirty } from "../state.js";
+import { canEdit, canWrite } from "../permissions.js";
 import { xToDate, dateToX, dayWidth, today } from "../dates.js";
 import { render } from "../render/index.js";
 import { openEditor, toggleMilestoneUI, closeEditor } from "./editor.js";
-import { openGroupEditor } from "./groupEditor.js";
+import { openGroupEditor, closeGroupEditor } from "./groupEditor.js";
 import { icon } from "../icons.js";
 
 export function updateViewButtons() {
@@ -62,14 +63,17 @@ export function applyLockUI() {
     ? icon("lock") + "<span>View only</span>"
     : (S.locked ? icon("lock") + "<span>View only</span>" : icon("unlock") + "<span>Editing</span>");
   btn.title = S.viewOnly
-    ? "Opened from a view-only link — editing is off for this workspace"
+    ? "You have view-only access to this workspace"
     : (S.locked ? "Read-only — click to start editing" : "Editing — click to lock (view only)");
   btn.setAttribute("aria-disabled", S.viewOnly ? "true" : "false");
 }
 function toggleLock() {
-  if (S.viewOnly) { toast("This workspace was opened from a view-only link"); return; }
+  if (!canWrite()) { toast("You have view-only access to this workspace"); return; }
   S.locked = !S.locked;
-  if (S.locked) closeEditor();
+  // Close BOTH editors. Leaving the group editor open across a lock was a live
+  // hole: `body.locked` CSS does not hide #g-save, so unlock -> open the group
+  // editor -> re-lock left a working Save button behind the lock.
+  if (S.locked) { closeEditor(); closeGroupEditor(); }
   applyLockUI();
   render(); // refresh draggable state on list rows etc.
 }
@@ -92,7 +96,11 @@ $("view-seg").addEventListener("click", (e) => {
   // remember the date currently centered in the viewport, then restore it
   const centerDate = xToDate(chartPane.scrollLeft + chartPane.clientWidth / 2);
   S.state.settings.viewMode = b.dataset.view;
-  markDirty(); updateViewButtons(); render();
+  // Zooming is a READ affordance and stays available to everyone — but viewMode
+  // is stored in the board document, so marking it dirty without edit rights
+  // would queue a save that can only ever fail. Apply the zoom locally instead.
+  if (canEdit()) markDirty();
+  updateViewButtons(); render();
   chartPane.scrollLeft = Math.max(0, dateToX(centerDate) + dayWidth() / 2 - chartPane.clientWidth / 2);
 });
 if ($("mode-seg")) $("mode-seg").addEventListener("click", (e) => {

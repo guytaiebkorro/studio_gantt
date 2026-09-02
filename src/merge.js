@@ -30,7 +30,15 @@ function mergeFields(b, l, r) {
   for (const k of keys) {
     const lc = !eq(b ? b[k] : undefined, l[k]);
     const rc = !eq(b ? b[k] : undefined, r[k]);
-    if (rc && !lc) out[k] = clone(r[k]); // remote changed this field, we didn't → take theirs
+    // remote changed this field, we didn't → take theirs. "Theirs" includes
+    // theirs being a DELETION: `keys` is the union of local and remote keys, so
+    // r[k] is undefined when remote dropped a field base had — and clone() is
+    // JSON.parse(JSON.stringify(x)), which throws on undefined ("undefined" is
+    // not valid JSON). Mirror the delete instead of cloning a hole.
+    if (rc && !lc) {
+      if (r[k] === undefined) delete out[k];
+      else out[k] = clone(r[k]);
+    }
     // otherwise keep local (covers we-changed and both-changed → ours wins)
   }
   return out;

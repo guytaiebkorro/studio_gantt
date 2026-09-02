@@ -11,6 +11,7 @@
 import { SAVE_IDLE_MS, SAVE_MAX_MS, POLL_MS, POLL_ENABLED } from "./config.js";
 import { $, chartPane, toast } from "./dom.js";
 import { S, normalize, clearDirty } from "./state.js";
+import { canEdit } from "./permissions.js";
 import { merge3, clone } from "./merge.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
@@ -102,7 +103,9 @@ export async function saveToCloud() {
 // Batched autosave: wait for a pause in editing (idle), but never hold edits
 // longer than the max cap. Collapses a burst of edits into one save.
 export function scheduleCloudSave() {
-  if (!cloudConnected() || !S.cloud.binId || S.suppressAutosave || !S.cloudReady || S.locked) return;
+  // canEdit() rather than !S.locked: a viewer must never even SCHEDULE a write,
+  // so we don't queue saves that the server can only reject.
+  if (!cloudConnected() || !S.cloud.binId || S.suppressAutosave || !S.cloudReady || !canEdit()) return;
   setSync("pending");
   const now = Date.now();
   if (!S.firstDirtyAt) S.firstDirtyAt = now;

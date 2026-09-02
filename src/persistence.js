@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 import { $, toast } from "./dom.js";
 import { S, normalize, clearDirty, markDirty, supportsFS } from "./state.js";
+import { canEdit, requireEdit } from "./permissions.js";
 import { saveToCloud, cloudConnected } from "./sync.js";
 import { updateViewButtons } from "./ui/toolbar.js";
 import { render } from "./render/index.js";
@@ -84,7 +85,7 @@ function downloadHtml(htmlOut) {
 
 // Unified save: cloud when connected (cloud-only mode), else fall back to file/download.
 export async function save() {
-  if (S.locked) return; // view-only: nothing to save
+  if (!canEdit()) return; // viewer, or locked: nothing to save
   if (cloudConnected() && S.cloud.binId) return saveToCloud();
   return saveToFile();
 }
@@ -102,8 +103,10 @@ $("export-btn").addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 });
 
-// Import JSON
+// Import JSON — replaces the whole board, so it is a write like any other.
+// It was previously CSS-hidden only, with no guard behind it.
 $("import-btn").addEventListener("click", () => {
+  if (!requireEdit()) return;
   const inp = document.createElement("input");
   inp.type = "file"; inp.accept = "application/json,.json";
   inp.addEventListener("change", () => {

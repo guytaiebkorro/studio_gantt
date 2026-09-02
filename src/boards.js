@@ -13,6 +13,7 @@
 import { DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { $, esc, toast, chartPane, wireBackdropClose } from "./dom.js";
 import { S, clearDirty } from "./state.js";
+import { isAdmin, requireEdit } from "./permissions.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
@@ -193,6 +194,7 @@ export async function switchBoard(id) {
 }
 
 async function newBoard() {
+  if (!requireEdit()) return; // was cloudConnected() only — no role, no lock check
   if (!cloudConnected()) { toast("Cloud not configured"); return; }
   const name = (prompt("Name for the new board:", "New board") || "").trim();
   if (!name) return;
@@ -217,6 +219,7 @@ async function newBoard() {
 }
 
 async function renameBoard() {
+  if (!requireEdit()) return; // was unguarded — #board-new/#c-rename were CSS-hidden only
   if (!S.registry.length) { toast("No boards to rename"); return; }
   const entry = S.registry.find(b => b.id === S.cloud.binId);
   const name = (prompt("Rename board:", entry ? entry.name : "") || "").trim();
@@ -293,7 +296,7 @@ export async function switchWorkspace(id) {
 // device and every share-link recipient sees it; the local list caches it.
 async function renameWorkspace(raw) {
   if (!cloudConnected() || S.cloudGate) return;
-  if (S.viewOnly) { renderWorkspaceName(); return; } // the field is inert; don't write
+  if (!isAdmin()) { renderWorkspaceName(); return; } // the field is inert; don't write
   const name = (raw || "").trim() || DEFAULT_WORKSPACE_NAME;
   const prev = S.workspaceName;
   if (name === prev) { renderWorkspaceName(); return; }

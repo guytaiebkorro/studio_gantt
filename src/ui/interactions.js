@@ -6,6 +6,7 @@
 import { EDGE_PX } from "../config.js";
 import { $, chartPane, chartBody, listInner } from "../dom.js";
 import { S, markDirty, subtreeIds } from "../state.js";
+import { canEdit } from "../permissions.js";
 import { dayWidth, dateToX, addDays, parseD, fmtD, diffDays, chartWidth } from "../dates.js";
 import { render } from "../render/index.js";
 import { openEditor } from "./editor.js";
@@ -35,7 +36,9 @@ export function attachMilestoneDrag(m, t) {
 // the whole selection together by the same number of days.
 function startDrag(e, t, anchorEl, isMs) {
   const modifier = e.shiftKey || e.metaKey || e.ctrlKey;
-  if (S.locked) { modifier ? toggleSelection(t.id) : select(t.id); return; }
+  // No edit rights: degrade to selection only. Viewers should still be able to
+  // select and inspect, they just can't move anything.
+  if (!canEdit()) { modifier ? toggleSelection(t.id) : select(t.id); return; }
   if (modifier) { e.preventDefault(); toggleSelection(t.id); return; }
   // Plain click on an untagged bar selects only it; on an already-tagged bar
   // it keeps the group so the drag moves everything.
@@ -84,7 +87,7 @@ function startDrag(e, t, anchorEl, isMs) {
 }
 
 function startResize(e, t, side) {
-  if (S.locked) return;
+  if (!canEdit()) return;
   e.preventDefault(); e.stopPropagation();
   select(t.id);
   S.dragging = true;
