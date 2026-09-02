@@ -119,4 +119,86 @@ panel.wirePanel({ onSignOut: () => { signedOut = true; } });
 $("wp-signout").dispatchEvent(new MouseEvent("click", { bubbles: true }));
 ck("sign out reports through the callback", signedOut, true);
 
+// --- T3: account header ---------------------------------------------------
+panel.renderPanel();
+ck("account shows the display name", $("wp-name").textContent, "Guy Taieb");
+ck("account shows the email underneath", $("wp-mail").textContent, "guy@korro.ai");
+ck("avatar falls back to an initial", $("wp-avatar").textContent, "G");
+
+// With no display name, the email becomes the primary line rather than being
+// shown twice.
+S.user = { uid: "u1", email: "matan@korro.ai", displayName: "", photoURL: "" };
+panel.renderPanel();
+ck("no display name: email is primary", $("wp-name").textContent, "matan@korro.ai");
+ck("no display name: no duplicate line", $("wp-mail").textContent, "");
+ck("initial comes from the email", $("wp-avatar").textContent, "M");
+
+S.user = { uid: "u1", email: "guy@korro.ai", displayName: "Guy Taieb", photoURL: "https://example.test/p.png" };
+panel.renderPanel();
+ck("photo replaces the initial", $("wp-avatar").textContent, "");
+ck("photo is applied", $("wp-avatar").style.backgroundImage.includes("p.png"), true);
+S.user = { uid: "u1", email: "guy@korro.ai", displayName: "Guy Taieb", photoURL: "" };
+
+// --- T4: workspaces accordion with boards ---------------------------------
+await setup("admin");
+panel.renderPanel();
+
+const rows = () => document.querySelectorAll("#wp-workspaces .wp-ws");
+ck("every workspace is listed", rows().length, 2);
+ck("active workspace is expanded", rows()[0].classList.contains("active"), true);
+ck("other workspace is collapsed", rows()[1].classList.contains("active"), false);
+ck("active workspace shows its boards", document.querySelectorAll("#wp-workspaces .wp-board").length, 2);
+ck("collapsed workspace shows none", rows()[1].querySelectorAll(".wp-board").length, 0);
+ck("current board is marked",
+   document.querySelector("#wp-workspaces .wp-board.current .wp-board-name").textContent, "Main");
+ck("role chip on the row", rows()[0].querySelector(".wp-role").textContent.trim(), "admin");
+ck("admin is offered New board", !!rows()[0].querySelector(".wp-newboard"), true);
+ck("workspace name rendered", rows()[0].querySelector(".wp-ws-name").textContent, "Game Dev");
+
+// Selection reports through callbacks; the view never calls the backend itself.
+let selectedBoard = null, selectedWs = null;
+panel.wirePanel({
+  onSelectBoard: (ws, b) => { selectedBoard = [ws, b]; },
+  onSelectWorkspace: (ws) => { selectedWs = ws; }
+});
+panel.renderPanel();
+
+document.querySelectorAll("#wp-workspaces .wp-board")[1]
+  .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("clicking a board reports it", JSON.stringify(selectedBoard), JSON.stringify(["game-dev", "b2"]));
+
+rows()[1].querySelector(".wp-ws-head").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("clicking a workspace reports it", selectedWs, "product");
+
+// Keyboard parity with gate.js
+selectedWs = null;
+rows()[1].querySelector(".wp-ws-head")
+  .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+ck("Enter on a workspace reports it", selectedWs, "product");
+
+// Per-board actions must not also trigger board selection.
+let renamed = null, linked = null;
+panel.wirePanel({
+  onSelectBoard: (ws, b) => { selectedBoard = [ws, b]; },
+  onRenameBoard: (id) => { renamed = id; },
+  onCopyBoardLink: (id) => { linked = id; }
+});
+panel.renderPanel();
+selectedBoard = null;
+document.querySelector("#wp-workspaces [data-rename]")
+  .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("rename icon reports the board", renamed, "b1");
+ck("rename icon does not also select the board", selectedBoard, null);
+document.querySelector("#wp-workspaces [data-link]")
+  .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("link icon reports the board", linked, "b1");
+
+// A viewer cannot create or rename boards.
+await setup("viewer");
+panel.renderPanel();
+ck("viewer gets no New board", !!document.querySelector(".wp-newboard"), false);
+ck("viewer gets no rename icons", document.querySelectorAll("#wp-workspaces [data-rename]").length, 0);
+ck("viewer still gets copy-link icons", document.querySelectorAll("#wp-workspaces [data-link]").length > 0, true);
+ck("viewer still sees every workspace", rows().length, 2);
+
 rep("__DONE__");

@@ -78,6 +78,23 @@ export function requireEdit() {
   return false;
 }
 
+// Role-only gate for WORKSPACE MANAGEMENT — creating and renaming boards,
+// renaming the workspace, inviting people.
+//
+// Deliberately ignores S.locked, unlike requireEdit(). The lock exists to stop
+// a stray trackpad swipe nudging a bar on the chart; clicking "New board" in a
+// panel you opened on purpose is not that. Making someone unlock the chart
+// before they can add a board conflates an accident guard with a permission.
+//
+// Chart mutations (task edit/delete/duplicate, drag, import) still go through
+// requireEdit() and still respect the lock, because those ARE the thing the
+// lock protects.
+export function requireWrite() {
+  if (canWrite()) return true;
+  toast("You have view-only access to this workspace");
+  return false;
+}
+
 // Adopt the role the server gave us. S.viewOnly is DERIVED from it — it is no
 // longer a per-workspace flag remembered in localStorage, so it cannot be
 // stale, and closing the tab can never promote a viewer.
