@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 import { $, esc } from "../dom.js";
 import { S } from "../state.js";
-import { canWrite } from "../permissions.js";
+import { canWrite, canInvite, canAssignRole, isAdmin } from "../permissions.js";
 
 let handlers = {};
 let open = false;
@@ -45,6 +45,20 @@ function wireOnce() {
   // One delegated listener for the whole workspace tree, so re-rendering never
   // has to re-attach anything.
   $("wp-workspaces").addEventListener("click", onWorkspacesClick);
+  $("wp-invite-open").addEventListener("click", () => { if (handlers.onOpenInvite) handlers.onOpenInvite(); });
+  $("wp-people").addEventListener("change", (e) => {
+    const sel = e.target.closest(".wp-member-role");
+    if (!sel) return;
+    const role = sel.value;
+    // The dropdown is an affordance, not a boundary: re-check before reporting,
+    // and let firestore.rules have the final say regardless.
+    if (!canAssignRole(role)) { renderPanel(); return; }
+    if (handlers.onSetRole) handlers.onSetRole(sel.dataset.email, role);
+  });
+  $("wp-people").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-remove]");
+    if (btn && handlers.onRemoveMember) handlers.onRemoveMember(btn.dataset.remove);
+  });
   $("wp-workspaces").addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     const hit = e.target.closest(".wp-board, .wp-ws-head");
@@ -87,6 +101,96 @@ function onWorkspacesClick(e) {
 export function renderPanel() {
   renderAccount();
   renderWorkspaces();
+  renderPeople();
+}
+
+// ---------------------------------------------------------------------------
+// People.
+//
+// The controls here are an affordance, not a boundary: the role <select> omits
+// admin unless you are one, but every write is checked again by
+// firestore.rules, which is the only thing that actually decides. A
+// permission-denied from any of these is the rules working.
+//
+// The roster is fetched through handlers.loadMembers() rather than by importing
+// memberships.js, keeping this module a pure view — and making it testable
+// without Firestore.
+// ---------------------------------------------------------------------------
+const ROLE_NAME = { admin: "Admin", editor: "Editor", viewer: "Viewer" };
+let peopleToken = 0;
+
+export function clearPeople() {
+  const box = $("wp-people");
+  if (box) box.innerHTML = "";
+  const btn = $("wp-invite-open");
+  if (btn) btn.hidden = true;
+}
+
+async function renderPeople() {
+  const box = $("wp-people");
+  const caption = $("wp-people-caption");
+  const inviteBtn = $("wp-invite-open");
+  if (!box) return;
+
+  const live = S.ws.id && S.gate === "open";
+  if (caption) caption.hidden = !live;
+  if (inviteBtn) inviteBtn.hidden = !live || !canInvite();
+  if (!live) { box.innerHTML = ""; return; }
+
+  // Renders are cheap and frequent, and the fetch is async — a stale response
+  // must not overwrite a newer one after switching workspace.
+  const token = ++peopleToken;
+  if (!handlers.loadMembers) { box.innerHTML = ""; return; }
+
+  try {
+    const members = await handlers.loadMembers();
+    if (token !== peopleToken) return;
+    box.innerHTML = members.map(memberRow).join("");
+  } catch (err) {
+    if (token !== peopleToken) return;
+    // Never leave an empty list: "nobody is here" and "we couldn't ask" look
+    // identical, and one of them is alarming for the wrong reason.
+    box.innerHTML = `<p class="wp-empty">${
+      err && err.code === "permission-denied"
+        ? "Couldn't load the list — your access may have changed."
+        : "Couldn't load the list."
+    }</p>`;
+  }
+}
+
+function memberRow(m) {
+  const me = !!(S.user && S.user.email === m.email);
+  const label = m.displayName || m.email;
+  // An admin may change anyone's role EXCEPT their own — the rules refuse that,
+  // so no self-demotion can strand a workspace with no admin — and except the
+  // CLI-provisioned protected founder.
+  const mayManage = isAdmin() && !me && !m.isProtected;
+
+  const notes = [];
+  if (m.isProtected) notes.push("founder");
+  if (!m.signedIn) notes.push("not signed in yet");
+
+  return `<div class="wp-member" data-email="${esc(m.email)}">` +
+      `<span class="wp-member-who">` +
+        // The "you" chip is a SIBLING of the name, not nested inside it, so the
+        // name element's text is just the name.
+        `<span class="wp-member-line">` +
+          `<span class="wp-member-name">${esc(label)}</span>` +
+          (me ? `<span class="wp-you">you</span>` : "") +
+        `</span>` +
+        (m.displayName ? `<span class="wp-member-mail">${esc(m.email)}</span>` : "") +
+        (notes.length ? `<span class="wp-member-note">${esc(notes.join(" · "))}</span>` : "") +
+      `</span>` +
+      (mayManage
+        ? `<select class="wp-member-role" data-email="${esc(m.email)}" aria-label="Role for ${esc(m.email)}">` +
+            ["admin", "editor", "viewer"].map((r) =>
+              `<option value="${r}"${r === m.role ? " selected" : ""}>${ROLE_NAME[r]}</option>`).join("") +
+          `</select>`
+        : `<span class="wp-role role-${esc(m.role)}">${esc(m.role)}</span>`) +
+      (mayManage
+        ? `<button class="wp-icon wp-remove" data-remove="${esc(m.email)}" title="Remove from this workspace" aria-label="Remove ${esc(m.email)}">×</button>`
+        : "") +
+    `</div>`;
 }
 
 // Every workspace, always. The active one is expanded and shows its boards —
@@ -130,7 +234,7 @@ function renderBoards() {
           `</span>` +
         `</div>`;
     }).join("") +
-    (mayEdit ? `<button class="wp-newboard" type="button">＋ New board</button>` : "") +
+    (mayEdit ? `<button class="wp-add wp-newboard" type="button">＋ New board</button>` : "") +
   `</div>`;
 }
 

@@ -20,7 +20,7 @@
 import { DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { $, esc, toast, chartPane, wireBackdropClose } from "./dom.js";
 import { S, clearDirty } from "./state.js";
-import { canWrite, isAdmin, requireEdit, requireWrite, applyRole } from "./permissions.js";
+import { canWrite, isAdmin, canAssignRole, requireEdit, requireWrite, applyRole } from "./permissions.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
@@ -29,7 +29,10 @@ import { renderMembers, clearMembers } from "./ui/members.js";
 import {
   wirePanel, renderPanel, openPanel, closePanel, beginNewBoard, beginRenameBoard
 } from "./ui/panel.js";
-import { rememberBoard, lastBoardFor, leaveWorkspace as leaveMembership } from "./memberships.js";
+import {
+  rememberBoard, lastBoardFor, leaveWorkspace as leaveMembership,
+  listMembers, setMemberRole, removeMember
+} from "./memberships.js";
 import {
   loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus,
   cloudConnected, boardOpen, startPolling
@@ -460,7 +463,27 @@ wirePanel({
   onRenameBoard: (boardId) => beginRenameBoard(boardId),
   onCommitRenameBoard: async (boardId, name) => { await renameBoard(boardId, name); renderPanel(); },
   onCopyLink: () => copyBoardLink(S.ws.boardId),
-  onCopyBoardLink: (boardId) => copyBoardLink(boardId)
+  onCopyBoardLink: (boardId) => copyBoardLink(boardId),
+
+  // People. The panel is a view and never talks to Firestore itself, so the
+  // roster arrives through this callback.
+  loadMembers: () => listMembers(S.ws.id),
+  onSetRole: async (email, role) => {
+    if (!canAssignRole(role)) { toast(`You can't set someone to ${role}`); return; }
+    try {
+      await setMemberRole(S.ws.id, email, role);
+      toast(`${email} is now ${role}`);
+    } catch (err) { toast("Couldn't change that role: " + friendlyError(err)); }
+    renderPanel();
+  },
+  onRemoveMember: async (email) => {
+    if (!confirm(`Remove ${email} from “${S.workspaceName}”?\nThey lose access immediately.`)) return;
+    try {
+      await removeMember(S.ws.id, email);
+      toast(`Removed ${email}`);
+    } catch (err) { toast("Couldn't remove them: " + friendlyError(err)); }
+    renderPanel();
+  }
 });
 }
 installPanelHandlers();

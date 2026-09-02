@@ -155,14 +155,14 @@ body.panel-open .ws-panel { transform: translateX(0); }
 .wp-icon:hover { background: var(--chip-bg); color: var(--text); }
 .wp-icon:focus-visible { outline: none; box-shadow: var(--glow-accent); }
 
-.wp-newboard {
+.wp-add {
   font: inherit; font-size: 13px; color: var(--muted);
   background: none; border: none; cursor: pointer;
   width: 100%; text-align: left;
   padding: 8px 10px; border-radius: var(--radius-sm);
 }
-.wp-newboard:hover { background: var(--hover); color: var(--accent); }
-.wp-newboard:focus-visible { outline: none; box-shadow: var(--glow-accent); }
+.wp-add:hover { background: var(--hover); color: var(--accent); }
+.wp-add:focus-visible { outline: none; box-shadow: var(--glow-accent); }
 
 /* ---------- inline naming (replaces prompt()) ---------- */
 .wp-inline {
@@ -174,3 +174,40 @@ body.panel-open .ws-panel { transform: translateX(0); }
   box-shadow: var(--glow-accent);
   outline: none;
 }
+
+/* ---------- people ---------- */
+.wp-member {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 5px 10px;
+  border-radius: var(--radius-md);
+}
+.wp-member:hover { background: var(--hover); }
+.wp-member-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wp-member-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.wp-member-name {
+  font-size: 13.5px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wp-you {
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); background: var(--chip-bg);
+  padding: 2px 6px; border-radius: var(--radius-pill); flex: 0 0 auto;
+}
+.wp-member-mail, .wp-member-note {
+  font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wp-member-role {
+  flex: 0 0 auto;
+  font: inherit; font-size: 11.5px; color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  padding: 3px 6px; cursor: pointer;
+}
+.wp-member-role:focus-visible { outline: none; box-shadow: var(--glow-accent); }
+/* The × stays quiet until the row is hovered, so it never reads as the point
+   of the row. */
+.wp-remove { opacity: 0; font-size: 15px; }
+.wp-member:hover .wp-remove, .wp-remove:focus-visible { opacity: 1; }
+.wp-remove:hover { color: var(--danger); background: var(--danger-bg); }
+.wp-empty { margin: 6px 10px; font-size: 12.5px; color: var(--muted); }

@@ -289,4 +289,75 @@ await boards2.newBoard("Sneaky");
 ck("viewer cannot create a board even calling directly",
    calls.some((c) => c[0] === "createBoardData"), false);
 
+// --- T6: People -----------------------------------------------------------
+function peopleHandlers(extra) {
+  return Object.assign({
+    loadMembers: async () => MEMBERS.map((m) => ({ ...m })),
+    onSetRole: (email, role) => { calls.push(["setRole", email, role]); },
+    onRemoveMember: (email) => { calls.push(["removeMember", email]); },
+    onOpenInvite: () => { calls.push(["openInvite"]); }
+  }, extra || {});
+}
+
+await setup("admin");
+panel.wirePanel(peopleHandlers());
+panel.renderPanel();
+await sleep(200);
+
+const members = () => document.querySelectorAll("#wp-people .wp-member");
+ck("roster rendered", members().length, 2);
+ck("own row is marked", !!document.querySelector("#wp-people .wp-member .wp-you"), true);
+ck("display name preferred over email",
+   members()[0].querySelector(".wp-member-name").textContent.trim(), "Guy Taieb");
+ck("someone who hasn't signed in is flagged",
+   document.querySelector("#wp-people .wp-member[data-email='matan@korro.ai'] .wp-member-note").textContent.includes("not signed in"), true);
+
+// An admin may change other people's roles, but never their own, and never the
+// CLI-provisioned protected founder — the rules refuse both.
+ck("admin gets a role select for others",
+   document.querySelectorAll("#wp-people select.wp-member-role").length, 1);
+ck("no role select on my own row",
+   !!document.querySelector("#wp-people .wp-member[data-email='guy@korro.ai'] select"), false);
+ck("protected founder is not removable",
+   document.querySelectorAll("#wp-people [data-remove]").length, 1);
+ck("invite is offered to an admin", $("wp-invite-open").hidden, false);
+
+// Role change reports through the callback.
+calls.length = 0;
+const sel = document.querySelector("#wp-people select.wp-member-role");
+sel.value = "viewer";
+sel.dispatchEvent(new Event("change", { bubbles: true }));
+await sleep(60);
+ck("changing a role reports it", JSON.stringify(calls[0]), JSON.stringify(["setRole", "matan@korro.ai", "viewer"]));
+
+// Viewer: sees the roster, gets no controls.
+await setup("viewer");
+panel.wirePanel(peopleHandlers());
+panel.renderPanel();
+await sleep(200);
+ck("viewer sees the roster", members().length, 2);
+ck("viewer gets no role selects", document.querySelectorAll("#wp-people select.wp-member-role").length, 0);
+ck("viewer gets no remove buttons", document.querySelectorAll("#wp-people [data-remove]").length, 0);
+ck("viewer gets no invite", $("wp-invite-open").hidden, true);
+
+// Editor: can invite, cannot change roles.
+await setup("editor");
+panel.wirePanel(peopleHandlers());
+panel.renderPanel();
+await sleep(200);
+ck("editor can invite", $("wp-invite-open").hidden, false);
+ck("editor cannot change roles", document.querySelectorAll("#wp-people select.wp-member-role").length, 0);
+ck("editor cannot remove people", document.querySelectorAll("#wp-people [data-remove]").length, 0);
+
+// A failure to load must say so rather than render an empty list that looks
+// like "nobody is here".
+await setup("admin");
+panel.wirePanel(peopleHandlers({
+  loadMembers: async () => { throw Object.assign(new Error("nope"), { code: "permission-denied" }); }
+}));
+panel.renderPanel();
+await sleep(200);
+ck("a failed roster load is reported, not silently empty",
+   $("wp-people").textContent.toLowerCase().includes("access"), true);
+
 rep("__DONE__");
