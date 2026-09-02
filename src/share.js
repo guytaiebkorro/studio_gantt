@@ -23,14 +23,15 @@
 //     a plain permalink should stay bookmarkable and reloadable instead.
 //   * The link is safe in a Slack channel, a ticket, or an email.
 // ---------------------------------------------------------------------------
-import { $, toast } from "./dom.js";
+import { toast } from "./dom.js";
 import { S } from "./state.js";
 
 // Absolute link to the active workspace + current board. "" when nothing is open.
-export function buildShareLink() {
+export function buildShareLink(boardId) {
   if (!S.ws || !S.ws.id) return "";
   const q = new URLSearchParams({ ws: S.ws.id });
-  if (S.ws.boardId) q.set("b", S.ws.boardId);
+  const b = boardId || S.ws.boardId;
+  if (b) q.set("b", b);
   return location.href.split("#")[0] + "#" + q.toString();
 }
 
@@ -81,11 +82,11 @@ function legacyCopy(text) {
   return ok;
 }
 
-async function copyShareLink() {
+export async function copyLinkTo(boardId) {
   // No viewOnly check: a viewer may absolutely share a link, because the link
   // confers nothing. Under the old model handing out a link handed out write
   // access, which is why that guard existed.
-  const url = buildShareLink();
+  const url = buildShareLink(boardId);
   if (!url) { toast("Open a workspace first"); return; }
   const done = () => toast("Link copied — the recipient needs an invite to open it");
   try {
@@ -99,5 +100,4 @@ async function copyShareLink() {
   prompt("Copy this link:", url);
 }
 
-// --- wiring ---
-$("c-copy-link").addEventListener("click", () => { copyShareLink(); });
+// No module-scope wiring: the panel calls copyLinkTo() through its callbacks.

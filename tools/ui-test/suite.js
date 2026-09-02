@@ -201,4 +201,92 @@ ck("viewer gets no rename icons", document.querySelectorAll("#wp-workspaces [dat
 ck("viewer still gets copy-link icons", document.querySelectorAll("#wp-workspaces [data-link]").length > 0, true);
 ck("viewer still sees every workspace", rows().length, 2);
 
+// --- T5: inline new / rename board (no prompt()) ---------------------------
+await setup("admin");
+let committedNew = null, committedRename = null;
+panel.wirePanel({
+  onNewBoard: () => panel.beginNewBoard(),
+  onRenameBoard: (id) => panel.beginRenameBoard(id),
+  onCommitNewBoard: (name) => { committedNew = name; },
+  onCommitRenameBoard: (id, name) => { committedRename = [id, name]; }
+});
+panel.renderPanel();
+
+document.querySelector(".wp-newboard").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const newInput = document.querySelector(".wp-inline");
+ck("New board opens an inline field, not a prompt", !!newInput, true);
+ck("the inline field is focused", document.activeElement === newInput, true);
+newInput.value = "  Sprint 12  ";
+newInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+await sleep(30);
+ck("Enter commits the trimmed name", committedNew, "Sprint 12");
+
+// Escape must abandon without creating anything.
+committedNew = null;
+document.querySelector(".wp-newboard").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+document.querySelector(".wp-inline").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+await sleep(30);
+ck("Escape cancels without creating", committedNew, null);
+ck("Escape removes the inline field", !!document.querySelector(".wp-inline"), false);
+ck("Escape did not close the whole panel", panel.isPanelOpen(), false); // was never opened here
+
+// An empty name must not create a board called "".
+document.querySelector(".wp-newboard").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const blank = document.querySelector(".wp-inline");
+blank.value = "   ";
+blank.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+await sleep(30);
+ck("a blank name creates nothing", committedNew, null);
+
+// Rename replaces the board's own row, seeded with its current name.
+document.querySelector("#wp-workspaces [data-rename]").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const ren = document.querySelector(".wp-inline");
+ck("rename seeds the current name", ren.value, "Main");
+ren.value = "Main plan";
+ren.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+await sleep(30);
+ck("rename commits id and name", JSON.stringify(committedRename), JSON.stringify(["b1", "Main plan"]));
+
+// boards.js must accept a name argument now, and still guard on role.
+const boardsMod = await import("../../src/boards.js");
+ck("no prompt() left in boards.js newBoard", boardsMod.newBoard.length >= 1, true);
+
+// --- T5b: the panel is actually wired to the app --------------------------
+await setup("admin");
+// boards.js re-wires the panel with the real callbacks at module scope, so
+// re-import it and let its wiring win over the test's.
+const boards2 = await import("../../src/boards.js");
+// Earlier assertions replaced the panel's handlers with test spies; wirePanel()
+// swaps the whole set, so put the app's real ones back before testing the
+// end-to-end path.
+boards2.installPanelHandlers();
+boards2.updateCloudUI();
+
+panel.closePanel();
+$("cloud-btn").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("the toolbar title opens the panel", panel.isPanelOpen(), true);
+
+panel.closePanel();
+$("board-new").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+ck("Board button opens the panel", panel.isPanelOpen(), true);
+ck("...straight into a new-board field", !!document.querySelector(".wp-inline"), true);
+document.querySelector(".wp-inline").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+// A real end-to-end create through the app's own callbacks.
+panel.renderPanel();
+document.querySelector(".wp-newboard").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const live = document.querySelector(".wp-inline");
+live.value = "Roadmap";
+live.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+await sleep(120);
+ck("creating a board reaches the backend", calls.some((c) => c[0] === "createBoardData" && c[1] === "Roadmap"), true);
+ck("...and updates the board index", calls.some((c) => c[0] === "putBoards" && c[1].includes("Roadmap")), true);
+
+// A viewer's create must be refused by the guard, not by the absent button.
+await setup("viewer");
+calls.length = 0;
+await boards2.newBoard("Sneaky");
+ck("viewer cannot create a board even calling directly",
+   calls.some((c) => c[0] === "createBoardData"), false);
+
 rep("__DONE__");

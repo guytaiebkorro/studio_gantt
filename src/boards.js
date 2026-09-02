@@ -20,12 +20,15 @@
 import { DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { $, esc, toast, chartPane, wireBackdropClose } from "./dom.js";
 import { S, clearDirty } from "./state.js";
-import { canWrite, isAdmin, requireEdit, applyRole } from "./permissions.js";
+import { canWrite, isAdmin, requireEdit, requireWrite, applyRole } from "./permissions.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
 import { render } from "./render/index.js";
 import { applyLockUI } from "./ui/toolbar.js";
 import { renderMembers, clearMembers } from "./ui/members.js";
+import {
+  wirePanel, renderPanel, openPanel, closePanel, beginNewBoard, beginRenameBoard
+} from "./ui/panel.js";
 import { rememberBoard, lastBoardFor, leaveWorkspace as leaveMembership } from "./memberships.js";
 import {
   loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus,
@@ -190,10 +193,15 @@ export async function switchBoard(id) {
   $("loading").classList.remove("show");
 }
 
-async function newBoard() {
-  if (!requireEdit()) return;
+// `name` comes from the panel's inline field. It used to come from prompt(),
+// which was unstyleable, blocked the page, and looked nothing like the app.
+//
+// requireWrite() rather than requireEdit(): creating a board is workspace
+// management, not a chart edit, so the chart lock has no say. See permissions.js.
+export async function newBoard(name) {
+  if (!requireWrite()) return;
   if (!cloudConnected()) { toast("No workspace is open"); return; }
-  const name = (prompt("Name for the new board:", "New board") || "").trim();
+  name = String(name || "").trim();
   if (!name) return;
   setSync("syncing"); setCloudStatus("Creating board…", "");
   $("loading").classList.add("show");
@@ -217,20 +225,21 @@ async function newBoard() {
   }
 }
 
-async function renameBoard() {
-  if (!requireEdit()) return;
+export async function renameBoard(boardId, name) {
+  if (!requireWrite()) return;
   if (!S.registry.length) { toast("No boards to rename"); return; }
-  const entry = S.registry.find((b) => b.id === S.ws.boardId);
-  const name = (prompt("Rename board:", entry ? entry.name : "") || "").trim();
+  boardId = boardId || S.ws.boardId;
+  const entry = S.registry.find((b) => b.id === boardId);
+  name = String(name || "").trim();
   if (!name) return;
   const prev = entry ? entry.name : "";
-  if (entry) entry.name = name; else S.registry.push({ id: S.ws.boardId, name });
+  if (entry) entry.name = name; else S.registry.push({ id: boardId, name });
   try {
     // Both copies: the denormalized index the dropdown reads, and the board
     // document's own name. Two writes is the cost of denormalizing the index
     // onto the workspace doc, which is what makes the dropdown one read.
     await backend.putBoards(S.registry);
-    await backend.renameBoard(S.ws.boardId, name);
+    await backend.renameBoard(boardId, name);
     renderBoardSelect();
     toast("Renamed ✓");
   } catch (err) {
@@ -386,6 +395,7 @@ export function updateCloudUI() {
   updateWorkspaceButton();
   renderWorkspaceName();
   renderMembers();
+  renderPanel();
 }
 
 export function openCloud() {
@@ -400,7 +410,6 @@ export function closeCloud() {
 }
 
 // --- wiring -----------------------------------------------------------------
-$("cloud-btn").addEventListener("click", openCloud);
 $("c-close").addEventListener("click", closeCloud);
 wireBackdropClose($("cloud-overlay"), closeCloud);
 $("c-ws-name").addEventListener("change", (e) => { renameWorkspace(e.target.value); });
@@ -416,8 +425,53 @@ $("c-ws-switch").addEventListener("click", async () => {
 });
 $("c-leave-ws").addEventListener("click", () => { leaveForGood(); });
 $("c-savenow").addEventListener("click", () => { if (requireEdit()) saveToCloud(); });
-$("c-create").addEventListener("click", () => { newBoard(); });
-$("c-rename").addEventListener("click", () => { renameBoard(); });
 $("board-select").addEventListener("change", (e) => { switchBoard(e.target.value); });
-$("board-new").addEventListener("click", () => { newBoard(); });
 $("refresh-btn").addEventListener("click", () => { refreshNow(); });
+
+// --- panel wiring ----------------------------------------------------------
+// The panel is a pure view: it reports intent through these callbacks and never
+// touches the backend itself. Every mutating one re-enters the guarded function
+// in this module, so the permission checks stay in one place.
+//
+// Exported (and not just run at module scope) so it can be re-installed. Tests
+// swap in their own callbacks to assert what the view reports, and need a way
+// to put the real ones back; wirePanel() replaces the handler set wholesale.
+export function installPanelHandlers() {
+wirePanel({
+  onOpen: () => renderPanel(),
+  onSignOut: async () => {
+    closePanel();
+    const { doSignOut } = await import("./session.js");
+    doSignOut();
+  },
+  onSelectWorkspace: async (wsId) => {
+    if (wsId === S.ws.id) return;
+    const { pickWorkspace } = await import("./session.js");
+    await pickWorkspace(wsId);
+    renderPanel();
+  },
+  onSelectBoard: async (wsId, boardId) => {
+    if (wsId !== S.ws.id) return;      // boards of a collapsed workspace aren't rendered
+    await switchBoard(boardId);
+    renderPanel();
+  },
+  onNewBoard: () => beginNewBoard(),
+  onCommitNewBoard: async (name) => { await newBoard(name); renderPanel(); },
+  onRenameBoard: (boardId) => beginRenameBoard(boardId),
+  onCommitRenameBoard: async (boardId, name) => { await renameBoard(boardId, name); renderPanel(); },
+  onCopyLink: () => copyBoardLink(S.ws.boardId),
+  onCopyBoardLink: (boardId) => copyBoardLink(boardId)
+});
+}
+installPanelHandlers();
+
+// The toolbar title is the panel's trigger. Board creation now lives in the
+// panel too, so #board-new opens it straight into a new-board field rather than
+// duplicating the flow.
+$("cloud-btn").addEventListener("click", () => { openPanel(); });
+$("board-new").addEventListener("click", () => { openPanel(); beginNewBoard(); });
+
+async function copyBoardLink(boardId) {
+  const { copyLinkTo } = await import("./share.js");
+  copyLinkTo(boardId);
+}

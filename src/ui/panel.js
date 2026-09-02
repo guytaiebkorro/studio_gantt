@@ -134,6 +134,67 @@ function renderBoards() {
   `</div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Inline naming, replacing the two prompt() calls the app used to use for
+// creating and renaming boards. prompt() was the least sleek thing in the app:
+// it is unstyleable, blocks the whole page, and looks nothing like the rest.
+//
+// Both entry points swap a row for a text field in place. Enter commits, and
+// Escape or blur abandons — matching the workspace-name field's existing
+// behaviour, so there is one convention for naming things.
+// ---------------------------------------------------------------------------
+
+function inlineField(value, onCommit) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "wp-inline";
+  input.value = value || "";
+  input.maxLength = 120;
+  input.autocomplete = "off";
+  input.setAttribute("aria-label", "Board name");
+
+  let settled = false;
+  const finish = (commit) => {
+    if (settled) return;           // Enter fires blur too; only act once
+    settled = true;
+    const name = input.value.trim();
+    if (commit && name) onCommit(name);
+    renderPanel();                 // always repaint back to the real rows
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    // Stop Escape reaching the panel's handler, or abandoning a name would also
+    // close the whole panel.
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(false));
+  return input;
+}
+
+export function beginNewBoard() {
+  const anchor = $("wp-workspaces").querySelector(".wp-newboard");
+  if (!anchor) return;
+  const field = inlineField("", (name) => {
+    if (handlers.onCommitNewBoard) handlers.onCommitNewBoard(name);
+  });
+  field.placeholder = "Board name";
+  anchor.replaceWith(field);
+  field.focus();
+}
+
+export function beginRenameBoard(boardId) {
+  const row = $("wp-workspaces").querySelector(`.wp-board[data-board="${CSS.escape(boardId)}"]`);
+  if (!row) return;
+  const current = (S.registry.find((b) => b.id === boardId) || {}).name || "";
+  const field = inlineField(current, (name) => {
+    if (handlers.onCommitRenameBoard) handlers.onCommitRenameBoard(boardId, name);
+  });
+  row.replaceWith(field);
+  field.focus();
+  field.select();
+}
+
 function renderAccount() {
   const u = S.user || {};
   const name = u.displayName || u.email || "";

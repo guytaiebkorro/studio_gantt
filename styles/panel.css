@@ -163,3 +163,14 @@ body.panel-open .ws-panel { transform: translateX(0); }
 }
 .wp-newboard:hover { background: var(--hover); color: var(--accent); }
 .wp-newboard:focus-visible { outline: none; box-shadow: var(--glow-accent); }
+
+/* ---------- inline naming (replaces prompt()) ---------- */
+.wp-inline {
+  display: block; width: calc(100% - 4px); margin: 2px;
+  height: 38px; padding: 0 10px;
+  font: inherit; font-size: 13.5px; color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  box-shadow: var(--glow-accent);
+  outline: none;
+}
