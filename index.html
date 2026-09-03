@@ -25,6 +25,10 @@
 <link rel="stylesheet" href="styles/tasksview.css">
 <link rel="stylesheet" href="styles/modals.css">
 <link rel="stylesheet" href="styles/panel.css">
+<!-- These two load AFTER modals.css on purpose: both override the generic
+     .modal chrome in it, and the cascade is the only thing deciding. -->
+<link rel="stylesheet" href="styles/invite.css">
+<link rel="stylesheet" href="styles/gate.css">
 <script>
   /* Apply the saved theme before first paint to avoid a flash.
      Default is the warm light theme (no attribute); only an explicit saved
@@ -126,6 +130,111 @@
     </div>
     <div id="tasks-pane"><div id="tasks-inner"></div></div>
     <div id="loading" class="show">Loading board…</div>
+  </div>
+</div>
+
+<!-- Startup gate. NON-DISMISSABLE by construction: no close button, no
+     wireBackdropClose, and main.js's Escape handler deliberately does not name
+     it. One section shows at a time, chosen by data-view on the modal.
+     src/ui/gate.js owns this and nothing else.
+
+     Position in the document is not meaningful — it is a fixed, full-viewport
+     layer with an explicit z-index. It sits HERE, far from #invite-dialog,
+     purely so two people redesigning the two surfaces don't collide. -->
+<div class="overlay show" id="auth-overlay">
+  <!-- NOT a `.modal`. This is a full-bleed page, so it deliberately opts out of
+       modals.css's card chrome (fixed width, border, drop shadow, padded h3)
+       rather than fighting it rule by rule. `.gate` is the hook gate.js looks
+       for (`overlay.querySelector(".gate")`) and it must stay. -->
+  <div class="gate" data-view="boot">
+
+    <!-- Left rail: brand, one action, the fine print. Every view shares it, so
+         boot -> signin -> empty never moves the wordmark. -->
+    <div class="gate-rail">
+      <div class="gate-brand">
+        <img src="favicon-32.png" alt="" width="28" height="28">
+        <span class="gate-eyebrow">Korro</span>
+      </div>
+
+      <!-- The one place the product's full name appears. The tab title, the
+           toolbar fallback and the README all still say plain "Gantt". -->
+      <h1 class="gate-wordmark"><span>Korro</span><span>Gantt</span></h1>
+      <p class="gate-sub">Plan the quarter. See the whole thing.</p>
+
+      <div class="gate-views">
+        <section data-when="boot">
+          <!-- A pill the exact size of the Google button, so boot -> signin is
+               a crossfade and not a layout jump. -->
+          <div class="gate-shimmer" role="status" aria-label="Starting"></div>
+        </section>
+
+        <section data-when="signin">
+          <button class="gate-google" id="gate-google">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.27-4.74 3.27-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A10.99 10.99 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a10.99 10.99 0 0 0 0 9.9l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>
+            Continue with Google
+          </button>
+          <p class="gate-fine">Access is invite-only — an admin has to add your address before you can open anything.</p>
+        </section>
+
+        <section data-when="empty">
+          <p class="gate-lead">You're not in any workspace yet.</p>
+          <p class="gate-fine">Ask an admin to invite <b class="gate-email"></b>. Access is granted per
+            address, so it has to be that exact one.</p>
+        </section>
+
+        <section data-when="denied">
+          <p class="gate-lead">You don't have access to that workspace.</p>
+          <!-- Deliberately does not claim the workspace exists: the rules deny
+               reads identically whether you're not a member or it's not there, so
+               the client genuinely cannot tell the two apart. -->
+          <p class="gate-fine">Ask an admin to invite <b class="gate-email"></b>.</p>
+        </section>
+      </div>
+
+      <div class="c-status" id="gate-status"></div>
+
+      <!-- Not a modal footer bar any more: a quiet inline row under the copy.
+           gate.js hides it for boot and signin with an inline style.display, so
+           the rule that lays it out has to be a plain `display` it can restore. -->
+      <div class="gate-foot">
+        <span class="gate-who" id="gate-who"></span>
+        <button class="btn" id="gate-copy-email">Copy my email</button>
+        <button class="btn" id="gate-refresh">Check again</button>
+        <button class="btn" id="gate-signout">Sign out</button>
+      </div>
+    </div>
+
+    <!-- Right: the living Gantt. The app's own visual grammar — pill bars on a
+         weekly grid, the today line with its cap, diamonds, dependency curves —
+         drawn in CSS and one inline SVG. No image requests, no library, and
+         nothing here is reachable by pointer or by keyboard. -->
+    <div class="gate-art" aria-hidden="true">
+      <div class="gate-art-stage">
+        <div class="gate-art-grid"></div>
+        <svg class="gate-art-deps" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <path d="M40 17.86 C 47 17.86 47 39.29 28 39.29" vector-effect="non-scaling-stroke"/>
+          <path d="M84 60.71 C 91 60.71 91 82.14 56 82.14" vector-effect="non-scaling-stroke"/>
+        </svg>
+        <div class="gate-art-today"></div>
+        <div class="gate-art-row"><i class="gate-bar t-a" style="--i:0;--x:4%;--w:26%;--o:.92"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-b" style="--i:1;--x:10%;--w:34%;--o:.85"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-c" style="--i:2;--x:22%;--w:18%;--o:1"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-a" style="--i:3;--x:16%;--w:40%;--o:.74"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-b" style="--i:4;--x:34%;--w:22%;--o:1"></i>
+          <i class="gate-ms" style="--i:5;--x:60%"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-c" style="--i:5;--x:28%;--w:36%;--o:1"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-a" style="--i:6;--x:44%;--w:28%;--o:.78"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-c" style="--i:7;--x:38%;--w:20%;--o:1"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-b" style="--i:8;--x:52%;--w:32%;--o:.82"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-c" style="--i:9;--x:48%;--w:16%;--o:1"></i>
+          <i class="gate-ms alt" style="--i:10;--x:70%"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-a" style="--i:10;--x:60%;--w:30%;--o:1"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-b" style="--i:11;--x:56%;--w:38%;--o:.72"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-c" style="--i:12;--x:70%;--w:22%;--o:1"></i></div>
+        <div class="gate-art-row"><i class="gate-bar t-a" style="--i:13;--x:66%;--w:26%;--o:.85"></i></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -257,13 +366,34 @@
 <!-- Invite dialog. This one IS an .overlay, deliberately: uiBusy() treats it as
      an edit in progress and pauses syncing, which is right for a modal you are
      filling in. Inviting is a commitment and gets focus, rather than being an
-     inline row you can fat-finger. -->
+     inline row you can fat-finger.
+
+     NOTE: wireBackdropClose() from src/dom.js is deliberately NOT wired here,
+     unlike the two editor overlays. Send or Cancel are the only ways out — you
+     can lose a typed address by brushing the backdrop, and this dialog is modal
+     over the workspace panel, so a stray backdrop click used to take the panel
+     with it as well. closePanel() refuses while this is open; see panel.js. -->
 <div class="overlay" id="invite-dialog">
-  <div class="modal invite-modal">
-    <h3>Invite to <span id="invite-ws"></span></h3>
+  <div class="modal invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-title">
+    <h3 id="invite-title">Invite to <span class="invite-ws" id="invite-ws"></span></h3>
     <div class="body">
-      <input type="email" id="invite-email" autocomplete="off" spellcheck="false"
-             placeholder="name@company.com" aria-label="Email address">
+      <!-- The hero of the dialog. The wrapper carries the icon, the floating
+           label and the state slot; the <input> stays a bare input so
+           #invite-email keeps its id, its type and its Enter-to-submit.
+           placeholder=" " (one space) is load-bearing: :placeholder-shown is
+           what drives the CSS-only floating label. -->
+      <div class="invite-field" id="invite-field">
+        <svg class="invite-field-icon" viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true"><rect x="2.6" y="4.6" width="18.8" height="14.8" rx="3.2"/><path d="m3.6 7.2 7.3 5.4a2 2 0 0 0 2.2 0l7.3-5.4"/></svg>
+        <input type="email" id="invite-email" autocomplete="off" spellcheck="false"
+               placeholder=" " aria-label="Email address" aria-describedby="invite-field-msg">
+        <label for="invite-email">Email address</label>
+        <span class="invite-field-state" aria-hidden="true"></span>
+      </div>
+      <!-- One reserved line. Never scolds while you type: panel.js validates on
+           blur and on submit, and any keystroke clears it again. -->
+      <p class="invite-field-msg" id="invite-field-msg"></p>
       <!-- Roles as a segmented control. The one line of meaning below it
            replaces the paragraph that used to explain all three at once. -->
       <div class="wp-segs" id="invite-roles" role="radiogroup" aria-label="Permission level">
@@ -272,59 +402,16 @@
         <button class="wp-seg" type="button" data-role="admin" role="radio" aria-checked="false">Admin</button>
       </div>
       <p class="wp-note" id="invite-role-note"></p>
-      <div class="c-status" id="invite-status" style="display:none"></div>
     </div>
     <div class="foot">
       <button class="btn" id="invite-cancel">Cancel</button>
       <button class="btn primary" id="invite-send">Send invite</button>
     </div>
-  </div>
-</div>
-
-<!-- Startup gate. NON-DISMISSABLE by construction: no close button, no
-     wireBackdropClose, and main.js's Escape handler deliberately does not name
-     it. One section shows at a time, chosen by data-view on the modal.
-     src/ui/gate.js owns this and nothing else. -->
-<div class="overlay show" id="auth-overlay">
-  <div class="modal gate" data-view="boot">
-    <h3><img class="title-logo" src="favicon-32.png" alt="" width="20" height="20">Gantt</h3>
-    <div class="body">
-
-      <section data-when="boot">
-        <p class="gate-lead">Starting…</p>
-      </section>
-
-      <section data-when="signin">
-        <p class="gate-lead">Sign in to open your boards.</p>
-        <button class="btn primary gate-google" id="gate-google">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.27-4.74 3.27-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A10.99 10.99 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a10.99 10.99 0 0 0 0 9.9l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>
-          Continue with Google
-        </button>
-        <div class="hint">Access is invite-only — an admin has to add your address before you can open anything.</div>
-      </section>
-
-      <section data-when="empty">
-        <p class="gate-lead">You're not in any workspace yet.</p>
-        <div class="hint">Ask an admin to invite <b class="gate-email"></b>. Access is granted per
-          address, so it has to be that exact one.</div>
-      </section>
-
-      <section data-when="denied">
-        <p class="gate-lead">You don't have access to that workspace.</p>
-        <!-- Deliberately does not claim the workspace exists: the rules deny
-             reads identically whether you're not a member or it's not there, so
-             the client genuinely cannot tell the two apart. -->
-        <div class="hint">Ask an admin to invite <b class="gate-email"></b>.</div>
-      </section>
-
-      <div class="c-status" id="gate-status"></div>
-    </div>
-    <div class="foot gate-foot">
-      <span class="gate-who" id="gate-who"></span>
-      <button class="btn" id="gate-copy-email">Copy my email</button>
-      <button class="btn" id="gate-refresh">Check again</button>
-      <button class="btn" id="gate-signout">Sign out</button>
-    </div>
+    <!-- Server-side outcomes only ("Inviting…", a rules rejection). It keeps the
+         id and the .c-status classes that inviteStatus() sets, but sits BELOW
+         the footer as a quiet line rather than a coloured block in the body:
+         field-level problems belong on the field. -->
+    <div class="c-status" id="invite-status" style="display:none"></div>
   </div>
 </div>
 

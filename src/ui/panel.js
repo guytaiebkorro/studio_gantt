@@ -9,9 +9,13 @@
 // It reads S, but only ever inside function bodies. Nothing here dereferences
 // an import at module-evaluation time.
 // ---------------------------------------------------------------------------
-import { $, esc } from "../dom.js";
+import { $, esc, toast } from "../dom.js";
 import { S } from "../state.js";
 import { canWrite, canInvite, canAssignRole, isAdmin } from "../permissions.js";
+// share.js is a leaf — dom.js and state.js only — so this adds no cycle and
+// does not compromise the "pure view" rule above: it is a utility, not
+// boards.js reaching back in.
+import { buildShareLink, buildInviteMailto, copyText, openMail } from "../share.js";
 
 let handlers = {};
 let open = false;
@@ -78,6 +82,15 @@ function wireOnce() {
   $("invite-email").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); submitInvite(); }
   });
+  // Never scold while someone is still typing: the field is judged on blur and
+  // on submit, and any keystroke takes the verdict back.
+  $("invite-email").addEventListener("input", clearFieldVerdict);
+  $("invite-email").addEventListener("blur", judgeField);
+  // Tab must not walk out of a modal dialog into the layer it is covering.
+  // `inert` on #ws-panel already removes that layer from the tab order in every
+  // current browser; this is the part that works without it, and it also keeps
+  // Tab from reaching the browser chrome and back.
+  $("invite-dialog").addEventListener("keydown", trapTab);
   $("wp-workspaces").addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     const hit = e.target.closest(".wp-board, .wp-ws-head");
@@ -149,6 +162,7 @@ export function clearPeople() {
   if (box) box.innerHTML = "";
   const btn = $("wp-invite-open");
   if (btn) btn.hidden = true;
+  lastRoster = [];
 }
 
 async function renderPeople() {
@@ -170,9 +184,13 @@ async function renderPeople() {
   try {
     const members = await handlers.loadMembers();
     if (token !== peopleToken) return;
+    // Cached for the invite dialog, which uses it to answer "they're already
+    // here" before the click rather than letting the rules say it afterwards.
+    lastRoster = members;
     box.innerHTML = members.map(memberRow).join("");
   } catch (err) {
     if (token !== peopleToken) return;
+    lastRoster = [];               // a stale roster is worse than no roster
     // Never leave an empty list: "nobody is here" and "we couldn't ask" look
     // identical, and one of them is alarming for the wrong reason.
     box.innerHTML = `<p class="wp-empty">${
@@ -345,6 +363,21 @@ const ROLE_NOTE = {
 
 let inviteRole = "viewer";
 let inviteEsc = null;
+// The last roster renderPeople() fetched, so the dialog can answer "they are
+// already here" locally. Presentation only — memberships.js and the rules still
+// decide, this just stops the user learning it from a rejection.
+let lastRoster = [];
+// Whatever had focus when the dialog opened, so closing it doesn't dump a
+// keyboard user on <body> with nothing to Tab from.
+let inviteReturnFocus = null;
+
+// Deliberately narrower than RFC 5321 and deliberately the same shape the
+// member document's id is validated against server-side: it is a document id
+// as well as an address, and '/' is legal in one and illegal in the other.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+const FOCUSABLE =
+  'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function isInviteOpen() {
   const dlg = $("invite-dialog");
@@ -355,9 +388,12 @@ export function openInvite() {
   const dlg = $("invite-dialog");
   if (!dlg) return;
 
+  inviteReturnFocus = document.activeElement;
+
   $("invite-ws").textContent = S.workspaceName || "";
   $("invite-email").value = "";
   inviteStatus("");
+  clearFieldVerdict();
 
   // Only admins may hand out admin. The segment is REMOVED, not disabled: a
   // disabled control can be re-enabled from devtools, and the write would then
@@ -367,6 +403,10 @@ export function openInvite() {
 
   setInviteRole("viewer");
   dlg.classList.add("show");
+  // The layer behind goes inert: one attribute takes the whole subtree out of
+  // hit-testing AND out of the tab order, which is most of what "modal" means.
+  // trapTab() is the part that still works where inert doesn't.
+  setPanelInert(true);
   $("invite-email").focus();
 
   // The panel's own Escape handler defers while this is open (see wireOnce),
@@ -383,6 +423,104 @@ export function closeInvite() {
   const dlg = $("invite-dialog");
   if (dlg) dlg.classList.remove("show");
   if (inviteEsc) { window.removeEventListener("keydown", inviteEsc); inviteEsc = null; }
+  clearFieldVerdict();
+  // Un-inert BEFORE restoring focus: focusing into an inert subtree is a no-op,
+  // so the order here is the whole point.
+  setPanelInert(false);
+  const back = inviteReturnFocus;
+  inviteReturnFocus = null;
+  if (back && back.isConnected && typeof back.focus === "function") back.focus();
+}
+
+function setPanelInert(on) {
+  const p = $("ws-panel");
+  if (!p) return;
+  // Feature-detected rather than assumed: on a browser without it the focus
+  // trap is still the mechanism, and setting an unknown property would just be
+  // an inert (sorry) expando.
+  if ("inert" in HTMLElement.prototype) p.inert = on;
+}
+
+// Tab wraps inside the dialog. Collected on every keypress rather than cached,
+// because #invite-send goes in and out of [disabled] and the admin segment can
+// have been removed.
+function trapTab(e) {
+  if (e.key !== "Tab" || !isInviteOpen()) return;
+  const dlg = $("invite-dialog");
+  const items = Array.from(dlg.querySelectorAll(FOCUSABLE));
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+// ---------------------------------------------------------------------------
+// The field's three-way verdict: nothing said, something wrong, something worth
+// confirming. It is set on blur and on submit and cleared on any keystroke —
+// telling someone their address is malformed while they are on the third
+// character of it is noise, not help.
+// ---------------------------------------------------------------------------
+function fieldVerdict(cls, msg, msgKind) {
+  const field = $("invite-field");
+  if (field) {
+    field.classList.remove("is-invalid", "is-valid", "is-busy");
+    if (cls) field.classList.add(cls);
+  }
+  const el = $("invite-field-msg");
+  if (el) {
+    el.textContent = msg || "";
+    el.className = "invite-field-msg" + (msgKind ? " " + msgKind : "");
+  }
+}
+
+function clearFieldVerdict() {
+  fieldVerdict(null, "");
+  blockSend("");
+}
+
+// Disabling Send is presentation: submitInvite() re-checks, and the rules check
+// again after that. The `title` is the whole reason to bother — a disabled
+// button with no stated reason is worse than one that fails.
+function blockSend(reason) {
+  const btn = $("invite-send");
+  if (!btn) return;
+  btn.disabled = !!reason;
+  if (reason) btn.title = reason;
+  else btn.removeAttribute("title");
+}
+
+function rosterMatch(email) {
+  return lastRoster.find((m) => String(m && m.email || "").trim().toLowerCase() === email);
+}
+
+// "an admin", "an editor", "a viewer". The three roles are a closed set, so
+// this is a lookup rather than a guess at English.
+const ROLE_ARTICLE = { admin: "an", editor: "an", viewer: "a" };
+function alreadyHere(role) {
+  return `Already ${ROLE_ARTICLE[role] || "a"} ${role} in this workspace.`;
+}
+function alreadyHereReason(email, role) {
+  return `${email} is already ${ROLE_ARTICLE[role] || "a"} ${role} in this workspace.`;
+}
+
+function judgeField() {
+  const email = ($("invite-email").value || "").trim().toLowerCase();
+  if (!email) { clearFieldVerdict(); return; }
+
+  if (!EMAIL_RE.test(email)) {
+    fieldVerdict("is-invalid", "That doesn't look like an email address.", "err");
+    blockSend("");            // let the click say it too, rather than swallowing it
+    return;
+  }
+  const known = rosterMatch(email);
+  if (known) {
+    // Neutral, not an error: nothing is wrong, it just wouldn't do anything.
+    fieldVerdict(null, alreadyHere(known.role));
+    blockSend(alreadyHereReason(email, known.role));
+    return;
+  }
+  fieldVerdict("is-valid", "");
 }
 
 function setInviteRole(role) {
@@ -406,20 +544,63 @@ function inviteStatus(msg, kind) {
 async function submitInvite() {
   const raw = $("invite-email").value || "";
   const email = raw.trim().toLowerCase();
-  if (!email) { inviteStatus("Enter an email address", "err"); $("invite-email").focus(); return; }
+
+  // Field-level problems are reported ON the field, not in the status line:
+  // the status line is for what the server said.
+  if (!email) {
+    fieldVerdict("is-invalid", "Enter an email address.", "err");
+    $("invite-email").focus();
+    return;
+  }
+  if (!EMAIL_RE.test(email)) {
+    fieldVerdict("is-invalid", "That doesn't look like an email address.", "err");
+    $("invite-email").focus();
+    return;
+  }
+  const known = rosterMatch(email);
+  if (known) {
+    fieldVerdict(null, alreadyHere(known.role));
+    blockSend(alreadyHereReason(email, known.role));
+    return;
+  }
   if (!canAssignRole(inviteRole)) { inviteStatus(`You can't invite someone as ${inviteRole}`, "err"); return; }
+
+  // Copy the link NOW, in the same task as the click that got us here.
+  // navigator.clipboard rejects a write with no live user activation behind it
+  // on Safari, and the Firestore round-trip below is easily long enough to lose
+  // it — so this cannot wait until the invite succeeds. The link is fully
+  // computable beforehand and grants nothing by itself, so the worst case of
+  // copying ahead of a failed invite is a stale clipboard entry.
+  //
+  // The mail draft, by contrast, waits: opening one for an invite that was
+  // refused would be worse than not opening one at all.
+  const link = buildShareLink();
+  const copying = copyText(link);
 
   const btn = $("invite-send");
   btn.disabled = true;
+  fieldVerdict("is-busy", "");
   inviteStatus("Inviting…");
   try {
     if (handlers.onInvite) await handlers.onInvite(email, inviteRole);
+    const copied = await copying;
     closeInvite();
     renderPanel();
+    // No prompt() fallback when the copy failed: the draft carries the same
+    // link in its body, so nobody is left without it.
+    toast(copied
+      ? `Invited ${email} — link copied, opening your email`
+      : `Invited ${email} — opening your email with the link`);
+    if (link) {
+      openMail(buildInviteMailto({
+        email, role: inviteRole, workspace: S.workspaceName, link
+      }));
+    }
   } catch (err) {
     // The likeliest cause is an address the rules reject: the member document's
     // id IS the email, validated against a pattern narrower than RFC 5321
     // (a '/' is legal in an address but illegal in a document id).
+    fieldVerdict("is-invalid", "");
     inviteStatus(
       err && err.code === "permission-denied"
         ? "Refused — check it's a plain lowercase email, and that you can grant that role."
@@ -428,6 +609,7 @@ async function submitInvite() {
     );
   } finally {
     btn.disabled = false;
+    btn.removeAttribute("title");
   }
 }
 
@@ -523,6 +705,12 @@ export function openPanel() {
 }
 
 export function closePanel() {
+  // The invite dialog is modal OVER the panel: sending or cancelling are the
+  // only ways out of it, and pulling the panel out from underneath is not one.
+  // Guarding here rather than on the scrim's click handler catches every route
+  // at once — the scrim, Escape, and any programmatic close — which is why
+  // boards.js's onSignOut closes the dialog first instead of fighting this.
+  if (isInviteOpen()) return;
   open = false;
   $("ws-panel").setAttribute("aria-hidden", "true");
   document.body.classList.remove("panel-open");

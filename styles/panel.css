@@ -12,7 +12,7 @@
    ".overlay.show" to mean "an edit is in progress", and would suppress polling
    and refresh-on-activate for as long as the panel were open. */
 .panel-scrim {
-  position: fixed; inset: 0; z-index: 150;
+  position: fixed; inset: 0; z-index: var(--z-panel-scrim);
   background: var(--overlay);
   opacity: 0;
   transition: opacity .16s ease;
@@ -20,7 +20,7 @@
 body.panel-open .panel-scrim { opacity: 1; }
 
 .ws-panel {
-  position: fixed; top: 0; left: 0; bottom: 0; z-index: 151;
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: var(--z-panel);
   width: 360px; max-width: 88vw;
   display: flex; flex-direction: column;
   background: var(--panel);
@@ -230,29 +230,9 @@ body.panel-open .ws-panel { transform: translateX(0); }
 .wp-empty { margin: 6px 10px; font-size: 12.5px; color: var(--muted); }
 
 /* ---------- invite dialog ---------- */
-.invite-modal { max-width: 400px; }
-.invite-modal .body { display: flex; flex-direction: column; gap: 14px; }
-#invite-email { width: 100%; }
-
-/* Segmented role control. A pill track with pill segments — one accent fill
-   marks the choice, and the line beneath explains only that one. */
-.wp-segs {
-  display: flex; gap: 3px; padding: 3px;
-  background: var(--chip-bg); border-radius: var(--radius-pill);
-}
-.wp-seg {
-  flex: 1; font: inherit; font-size: 12.5px; font-weight: 700;
-  color: var(--muted); background: none; border: none;
-  padding: 8px 6px; border-radius: var(--radius-pill);
-  cursor: pointer; transition: background .12s ease, color .12s ease;
-}
-.wp-seg:hover { color: var(--text); }
-.wp-seg.on {
-  background: var(--accent); color: var(--accent-text);
-  box-shadow: var(--bar-shadow);
-}
-.wp-seg:focus-visible { outline: none; box-shadow: var(--glow-accent); }
-.wp-note { margin: 0; font-size: 12.5px; color: var(--muted); min-height: 1.5em; }
+/* Moved to styles/invite.css — it is a modal opened FROM the panel, not part
+   of the panel, and it needs to load after modals.css to out-specify the
+   generic `.modal input[type=email]` rule. */
 
 /* ---------- workspace overflow menu ---------- */
 /* Absolutely positioned, so the role chip lands at the same x on every row

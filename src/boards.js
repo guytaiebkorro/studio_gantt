@@ -362,6 +362,7 @@ export function installPanelHandlers() {
 wirePanel({
   onOpen: () => renderPanel(),
   onSignOut: async () => {
+    closeInvite();   // sign-out overrides an in-progress invite; closePanel() refuses while it is up
     closePanel();
     const { doSignOut } = await import("./session.js");
     doSignOut();

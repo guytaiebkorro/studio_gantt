@@ -27,3 +27,6 @@ serviceAccount*.json
 
 # UI test harness scratch
 tools/ui-test/.profile/
+
+# Screenshot output from tools/ui-test/shot.mjs — evidence, not source.
+.tmp-shots/
