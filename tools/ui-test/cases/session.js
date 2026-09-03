@@ -52,3 +52,16 @@ ck("session: a resolved withTimeout does not fire its timer afterwards",
    "done");
 await new Promise((r) => setTimeout(r, 80));
 note("session: no late rejection after a resolved withTimeout (would have failed the run)");
+
+// --- switching accounts ----------------------------------------------------
+// signOut() ends the Firebase session and does nothing to the Google one, so
+// without prompt=select_account Google silently re-authorizes whoever just
+// left and there is no way to pick a different account. Config, not behaviour,
+// but it is a one-word regression away from locking someone out of their own
+// second account — and it cannot be caught by clicking around, because it
+// looks like a fast sign-in rather than a broken one.
+const { googleProvider } = await import("../../../src/firebase/app.js");
+const params = googleProvider.getCustomParameters
+  ? googleProvider.getCustomParameters() : null;
+ck("session: the Google provider asks which account to use",
+   params && params.prompt, "select_account");

@@ -37,6 +37,23 @@ export const db = initializeFirestore(app, {
 
 export const googleProvider = new GoogleAuthProvider();
 
+// ALWAYS offer the account chooser.
+//
+// signOut() ends the FIREBASE session; it has no effect on the Google session
+// in the browser. Without this parameter Google's OAuth endpoint sees that
+// session, silently re-authorizes the same account and hands the popup
+// straight back — so signing out and clicking "Continue with Google" logged
+// you back in as whoever you just left, with no way to pick anyone else.
+//
+// This costs a returning user nothing. A persisted Firebase session never
+// reaches this code at all (authReady resolves with the user and the gate
+// never shows), so the chooser only appears when someone has actually clicked
+// the button — which is precisely when they might mean a different account.
+//
+// Deliberately `select_account` and not `consent`: `consent` would also
+// re-prompt for scopes on every single sign-in.
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
 if (USE_EMULATOR) {
   connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
