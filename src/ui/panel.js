@@ -9,9 +9,13 @@
 // It reads S, but only ever inside function bodies. Nothing here dereferences
 // an import at module-evaluation time.
 // ---------------------------------------------------------------------------
-import { $, esc } from "../dom.js";
+import { $, esc, toast } from "../dom.js";
 import { S } from "../state.js";
 import { canWrite, canInvite, canAssignRole, isAdmin } from "../permissions.js";
+// share.js is a leaf — dom.js and state.js only — so this adds no cycle and
+// does not compromise the "pure view" rule above: it is a utility, not
+// boards.js reaching back in.
+import { buildShareLink, buildInviteMailto, copyText, openMail } from "../share.js";
 
 let handlers = {};
 let open = false;
@@ -561,14 +565,37 @@ async function submitInvite() {
   }
   if (!canAssignRole(inviteRole)) { inviteStatus(`You can't invite someone as ${inviteRole}`, "err"); return; }
 
+  // Copy the link NOW, in the same task as the click that got us here.
+  // navigator.clipboard rejects a write with no live user activation behind it
+  // on Safari, and the Firestore round-trip below is easily long enough to lose
+  // it — so this cannot wait until the invite succeeds. The link is fully
+  // computable beforehand and grants nothing by itself, so the worst case of
+  // copying ahead of a failed invite is a stale clipboard entry.
+  //
+  // The mail draft, by contrast, waits: opening one for an invite that was
+  // refused would be worse than not opening one at all.
+  const link = buildShareLink();
+  const copying = copyText(link);
+
   const btn = $("invite-send");
   btn.disabled = true;
   fieldVerdict("is-busy", "");
   inviteStatus("Inviting…");
   try {
     if (handlers.onInvite) await handlers.onInvite(email, inviteRole);
+    const copied = await copying;
     closeInvite();
     renderPanel();
+    // No prompt() fallback when the copy failed: the draft carries the same
+    // link in its body, so nobody is left without it.
+    toast(copied
+      ? `Invited ${email} — link copied, opening your email`
+      : `Invited ${email} — opening your email with the link`);
+    if (link) {
+      openMail(buildInviteMailto({
+        email, role: inviteRole, workspace: S.workspaceName, link
+      }));
+    }
   } catch (err) {
     // The likeliest cause is an address the rules reject: the member document's
     // id IS the email, validated against a pattern narrower than RFC 5321

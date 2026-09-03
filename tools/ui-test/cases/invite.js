@@ -213,6 +213,108 @@ if ("inert" in HTMLElement.prototype) {
 panel.closePanel();
 ck("modality: after a successful send the panel is closable again", panel.isPanelOpen(), false);
 
+// --- delivery: the send has to actually tell the person ---------------------
+//
+// Adding the member document grants access and notifies nobody, so Send also
+// copies the board link and opens a pre-composed draft. Both halves are
+// asserted: the composition purely, and the side effects through the real
+// submit path.
+const share = await import("../../../src/share.js");
+
+// Composition first — a pure function, so no clipboard or mail client needed.
+const mailto = share.buildInviteMailto({
+  email: "ada@korro.ai", role: "editor", workspace: "Game Dev",
+  link: "https://example.test/#ws=game-dev&b=b1"
+});
+ck("delivery: the draft is addressed to the invitee",
+   mailto.startsWith("mailto:ada@korro.ai?"), true);
+const mp = new URLSearchParams(mailto.slice(mailto.indexOf("?") + 1));
+ck("delivery: the subject names the workspace",
+   mp.get("subject"), "You've been added to Game Dev on Korro Gantt");
+ck("delivery: the body carries the link",
+   mp.get("body").includes("https://example.test/#ws=game-dev&b=b1"), true);
+ck("delivery: the body gets the role's article right",
+   mp.get("body").includes("as an editor"), true);
+ck("delivery: ...and says WHICH address has to sign in, because dot-aliases",
+   mp.get("body").includes("ada@korro.ai"), true);
+ck("delivery: a viewer reads as 'a viewer'",
+   new URLSearchParams(share.buildInviteMailto({
+     email: "a@b.co", role: "viewer", workspace: "W", link: "L"
+   }).split("?")[1]).get("body").includes("as a viewer"), true);
+
+// Now the side effects, through a real submit. The mailto is caught in the
+// capture phase and cancelled, so nothing is handed to a mail client here.
+let lastMailto = null;
+document.addEventListener("click", (e) => {
+  const a = e.target && e.target.closest && e.target.closest('a[href^="mailto:"]');
+  if (!a) return;
+  lastMailto = a.getAttribute("href");
+  e.preventDefault();
+}, true);
+
+// Stub the clipboard: headless Chrome may or may not grant the real one, and
+// the assertion is about what WE asked it to write.
+let clipboard = null;
+const realClipboard = navigator.clipboard;
+Object.defineProperty(navigator, "clipboard", {
+  configurable: true,
+  value: { writeText: async (t) => { clipboard = t; } }
+});
+
+await setup("admin");
+invited = null;
+panel.wirePanel(peopleHandlers({
+  onOpenInvite: () => panel.openInvite(),
+  onInvite: (email, role) => { invited = [email, role]; return Promise.resolve(); }
+}));
+panel.renderPanel();
+panel.openPanel();
+await sleep(200);
+openViaButton();
+type("grace@korro.ai");
+blur();
+click($("invite-send"));
+await sleep(150);
+
+ck("delivery: a successful send copies the board link",
+   clipboard, share.buildShareLink());
+ck("delivery: the copied link names the workspace and board",
+   /#ws=game-dev&b=b1$/.test(clipboard || ""), true);
+ck("delivery: a successful send opens a draft", !!lastMailto, true);
+ck("delivery: the draft is addressed to the person just invited",
+   (lastMailto || "").startsWith("mailto:grace@korro.ai?"), true);
+ck("delivery: the draft's link matches the one on the clipboard",
+   new URLSearchParams((lastMailto || "").split("?")[1] || "")
+     .get("body").includes(share.buildShareLink()), true);
+
+// A REFUSED invite must not open a draft — telling someone they have access
+// they were denied is worse than telling them nothing.
+lastMailto = null;
+clipboard = null;
+panel.wirePanel(peopleHandlers({
+  onOpenInvite: () => panel.openInvite(),
+  onInvite: () => Promise.reject(Object.assign(new Error("nope"), { code: "permission-denied" }))
+}));
+panel.renderPanel();
+panel.openPanel();
+await sleep(150);
+openViaButton();
+type("mallory@korro.ai");
+blur();
+click($("invite-send"));
+await sleep(150);
+ck("delivery: a refused invite opens no draft", lastMailto, null);
+ck("delivery: ...and says so, with the dialog still open",
+   $("invite-dialog").classList.contains("show"), true);
+// The clipboard is written before the round-trip on purpose — Safari rejects a
+// write with no live user activation, and the Firestore call outlives it. A
+// stale link in the clipboard is the accepted cost, so assert the real
+// behaviour rather than pretending it doesn't happen.
+ck("delivery: the link is copied up-front, even if the invite then fails",
+   clipboard, share.buildShareLink());
+
+Object.defineProperty(navigator, "clipboard", { configurable: true, value: realClipboard });
+
 // Leave the DOM as the next case file expects to find it.
 panel.closeInvite();
 panel.closePanel();

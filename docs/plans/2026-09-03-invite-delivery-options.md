@@ -1,7 +1,16 @@
 # Invite Delivery — Options & Recommendation
 
-> **Status:** design / options document. **No code.** Nothing here is approved. Section 6 is
-> the list of decisions that are the user's, not mine.
+> **Status:** options document. Section 6 is the list of decisions that are the user's, not
+> mine, and every server-side option below is still unapproved and unbuilt.
+>
+> **PARTLY SUPERSEDED — two thirds of phase 1 now ships.** Send invite copies the board link
+> and opens a pre-composed draft (option A + option B), in `submitInvite()` in
+> `src/ui/panel.js` and `buildInviteMailto()` / `copyText()` / `openMail()` in
+> `src/share.js`. What phase 1 recommended and is still NOT built is **option C, the in-app
+> welcome** — the person added six weeks ago who still doesn't know is not helped by any of
+> this, because nothing greets them on first sign-in. `invitedBy` and `claimedAt == null` are
+> already on the member document and are all it needs. Read section 3's option C and the
+> phase 1 write-up as the remaining work, not as a proposal.
 
 **The problem in one line:** inviting someone sends nothing. `inviteMember()` is a Firestore
 write and that is all it is. The invited person finds out because the inviter tells them on
