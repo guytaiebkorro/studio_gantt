@@ -19,7 +19,12 @@ Because it's served over HTTPS from GitHub Pages, there's nothing to install and
 ## Features
 
 - **Tasks** with name, group, start/end dates, **progress %**, and **dependencies**.
-- **Milestones** — zero-duration diamond markers for key dates.
+- **Owner** — an optional name on any task. Hover a bar or a list row to see it.
+- **Milestones** — zero-duration diamond markers for key dates. A whole row of their own.
+- **Checkpoints** — dated dots *inside* a task's own bar, for the key dates within its
+  span (design freeze, code cutoff) that don't deserve a row. Filled once the date has
+  passed, hollow while it's ahead; hover one for its label. Not the same thing as a
+  milestone, which is why they have their own name.
 - **Groups** — swimlanes with their own color; tasks inherit the group color (or set a per-task color).
 - **Drag to move**, **drag bar edges to stretch/shrink**, **drag milestones**.
 - **Dependencies** drawn as smooth arrows from a predecessor's end into the dependent task.
@@ -159,7 +164,8 @@ src/
     backend.js          ← the storage backend swap point
     jsonbin.js          the JSONBin adapter (the only file that knows JSONBin)
   render/               render orchestration + list + chart drawing
-  ui/                   interactions, editor, group editor, toolbar
+  ui/                   interactions, editor, group editor, toolbar, hover card
+                        (tooltip.js shows one; taskTip.js decides what it says)
 ```
 
 ## Swapping the backend
@@ -210,10 +216,18 @@ Each board bin stores `{ "updatedAt": <ms>, "data": <board> }`, where the board 
   "tasks":  [ {
     "id": "t1", "name": "Kickoff", "groupId": "g1",
     "start": "2026-06-15", "end": "2026-06-18",
-    "progress": 100, "isMilestone": false, "deps": [], "color": null
+    "progress": 100, "isMilestone": false, "deps": [], "color": null,
+    "owner": "Dana",
+    "checkpoints": [ { "id": "c1", "date": "2026-06-17", "label": "Design freeze" } ]
   } ]
 }
 ```
+
+`owner` and `checkpoints` are optional — boards written before they existed simply have
+neither, and `normalize()` in `src/state.js` fills in `""` / `[]` on load. `checkpoints` is
+kept sorted by date. Note that `isMilestone` (the task IS a diamond) and `checkpoints`
+(dots drawn inside this task's bar) are unrelated features that happen to share an English
+word; nothing in the code calls the dots milestones.
 
 The registry bin *is* the workspace record:
 `{ "name": "Workspace", "boards": [ { "id": "<binId>", "name": "Main" } ] }`.

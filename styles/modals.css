@@ -47,6 +47,33 @@
   border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; }
 .dep-list .d { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 
+/* ---------- Checkpoints (the editor's dated-dot rows) ---------- */
+/* Same bordered, scrolling box as .dep-list. Collapses entirely when there are
+   no rows, so an unused feature doesn't leave an empty frame in the form. */
+.cp-list {
+  display: flex; flex-direction: column; gap: 6px; max-height: 148px; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px;
+}
+.cp-list:empty { display: none; }
+.cp-row { display: flex; align-items: center; gap: 6px; }
+/* The date is fixed-width (and mono, via the .modal input[type=date] rule
+   above); the label takes the rest.
+   `input.cp-date` rather than `.cp-date`: the generic field rule above sets
+   width:100%, and `[type=date]` is an ATTRIBUTE selector — it counts in the
+   same specificity column as a class, so `.modal input[type=date]` (0,2,1)
+   outranks `.cp-row .cp-date` (0,2,0). Adding the element name ties it at
+   (0,2,1), and this rule comes later, so it wins. Without it the date input
+   fills the row and pushes the label and × out of the box. */
+.cp-row input.cp-date { flex: 0 0 auto; width: 140px; }
+.cp-row input.cp-label { flex: 1; min-width: 0; }
+.cp-row .cp-del {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--btn-bg); color: var(--muted);
+  font-size: 15px; line-height: 1; cursor: pointer;
+}
+.cp-row .cp-del:hover { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+.cp-add { margin-top: 8px; font-size: 12px; }
+
 /* ---------- Workspace switcher (Account panel) ---------- */
 .ws-list {
   display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow: auto;
@@ -109,7 +136,11 @@ body:not(.role-editor) #save-btn { display: none !important; }
 body.locked #editor-overlay .body input,
 body.locked #editor-overlay .body select,
 body.locked #editor-overlay .body textarea,
-body.locked #editor-overlay .body .swatches { pointer-events: none; opacity: .65; }
+body.locked #editor-overlay .body .swatches,
+/* the checkpoint rows' × and the ＋ Add button are <button>s, so the input
+   selectors above don't reach them */
+body.locked #editor-overlay .cp-del,
+body.locked #editor-overlay .cp-add { pointer-events: none; opacity: .65; }
 body.locked .bar, body.locked .milestone { cursor: default; }
 body.locked .bar .handle { display: none; }
 body.locked .list-row.task-row { cursor: pointer; }

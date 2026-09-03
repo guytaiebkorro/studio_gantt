@@ -6,16 +6,19 @@
 // filter, collapse state and "Ungrouped" synthesis behave identically.
 // ---------------------------------------------------------------------------
 import { $, esc } from "../dom.js";
-import { progressOf } from "../dates.js";
+import { progressOf, today, fmtD } from "../dates.js";
 import { icon } from "../icons.js";
 import { S, isCollapsed, toggleCollapse } from "../state.js";
 import { openEditor } from "../ui/editor.js";
 import { openGroupEditor } from "../ui/groupEditor.js";
 import { isSelected, toggleSelection } from "../ui/interactions.js";
+import { hideTip } from "../ui/tooltip.js";
+import { isOutside } from "../ui/taskTip.js";
 
 export function renderTasksView(rows) {
   const inner = $("tasks-inner");
   if (!inner) return; // older saved-HTML shell without the tasks pane
+  hideTip(); // the card may be describing a row this call is about to replace
   inner.innerHTML = "";
 
   if (!rows.length) {
@@ -78,6 +81,21 @@ function taskCard(r) {
   const desc = t.description
     ? `<div class="tv-desc">${esc(t.description)}</div>`
     : "";
+  // This view has no capsule to draw dots in, so checkpoints get chips —
+  // otherwise the feature would simply be invisible here.
+  const now = fmtD(today());
+  // A milestone task has no capsule in the chart either, so its (preserved but
+  // dormant) checkpoints stay hidden here too — the two views must agree.
+  const cps = !t.isMilestone && (t.checkpoints || []).length
+    ? `<div class="tv-cps">` + t.checkpoints.map(c =>
+        `<span class="tv-cp${isOutside(t, c) ? " out" : ""}"
+               title="${isOutside(t, c) ? "Outside this task’s dates" : ""}"
+          ><i class="tip-dot${c.date <= now ? " done" : ""}"></i
+          ><span class="tv-cp-date">${esc(c.date)}</span
+          >${c.label ? esc(c.label) : ""}</span>`).join("") + `</div>`
+    : "";
+  const owner = t.owner
+    ? `<span class="tv-owner">${icon("user")}${esc(t.owner)}</span>` : "";
   const prog = progressOf(t);
   const progress = prog.done
     ? `<span class="tv-done"><span class="done-badge">${icon("check")}</span>Done</span>`
@@ -91,8 +109,10 @@ function taskCard(r) {
                   <div class="tv-main">
                     <div class="tv-name">${caret}${marker}${esc(t.name)}${kidChip}</div>
                     ${desc}
+                    ${cps}
                   </div>
                   <div class="tv-side">
+                    ${owner}
                     <span class="tv-dates"${r.hasKids ? ' title="Rolled up from this task’s subtasks"' : ""}>${dates}</span>
                     ${progress}
                   </div>`;

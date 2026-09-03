@@ -11,6 +11,8 @@ import { render } from "./index.js";
 import { openEditor } from "../ui/editor.js";
 import { openGroupEditor } from "../ui/groupEditor.js";
 import { isSelected, toggleSelection } from "../ui/interactions.js";
+import { attachTip } from "../ui/tooltip.js";
+import { hasTip, taskTipHtml } from "../ui/taskTip.js";
 
 function clearDropMarks() {
   listInner.querySelectorAll(".drop-before, .drop-after, .drop-into")
@@ -134,6 +136,9 @@ export function renderList(rows) {
                      `<span class="swatch" style="background:${r.color}"></span>
                       <span class="nm">${mark}${esc(t.name)}</span>${done}` +
                      (col ? `<span class="meta">${r.kidCount}</span>` : "");
+      // Same hover card as the bar in the chart — the owner is the whole point
+      // of it here, since the row shows no owner of its own.
+      if (hasTip(t)) attachTip(el, taskTipHtml(t));
       // a parent collapses like a group header (same per-board collapsedMap)
       if (r.hasKids) el.querySelector(".caret")
         .addEventListener("click", (e) => { e.stopPropagation(); toggleCollapse(t.id); });
