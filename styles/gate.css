@@ -1,21 +1,391 @@
 /* ============================================================
-   STARTUP GATE (#auth-overlay)
+   STARTUP GATE (#auth-overlay) — the full-screen sign-in.
 
-   Carved out of modals.css. Loaded AFTER it, so these rules win over the
-   generic `.modal` chrome.
+   Loaded LAST, after modals.css, which is what lets it undo the generic
+   .overlay chrome. The gate element is deliberately NOT a `.modal`: this is a
+   page, not a card, so it opts out of that ruleset entirely rather than
+   out-specifying it rule by rule.
 
    Non-dismissable by construction: no close button, nothing wires a backdrop
-   close, and main.js's Escape handler deliberately does not name it.
+   close, and main.js's Escape handler deliberately does not name it. There is
+   nothing behind it to go back to.
+
+   The `.show` class is the ONLY visibility switch, and uiBusy() in sync.js
+   matches ".overlay.show" — so nothing here may hide the gate by any other
+   means, or a gate that merely looks hidden would suppress every poll.
    ============================================================ */
-.modal.gate { max-width: 420px; }
-.modal.gate section { display: none; }
-.modal.gate[data-view="boot"]   section[data-when="boot"],
-.modal.gate[data-view="signin"] section[data-when="signin"],
-.modal.gate[data-view="empty"]  section[data-when="empty"],
-.modal.gate[data-view="denied"] section[data-when="denied"] { display: block; }
-.modal.gate.busy { opacity: .7; pointer-events: none; }
-.gate-lead { font-size: 15px; font-weight: 700; margin: 0 0 12px; }
-.gate-google { display: inline-flex; align-items: center; gap: 10px; width: 100%; justify-content: center; }
-.gate-foot { flex-wrap: wrap; }
-.gate-who { margin-right: auto; font-size: 12px; color: var(--muted); }
-#gate-status { margin-top: 12px; }
+
+/* ---------- Local tokens: candidates for promotion to tokens.css ----------
+   Not added to tokens.css because a second agent is editing that file in
+   parallel. Two reasons these can't just be the existing tokens:
+
+   --gate-wash-*: base.css's --bg-glow-* are tuned as a wash BEHIND dense app
+   chrome. On a full-bleed page with nothing else on it they read as dirt on
+   the screen rather than light. Same hues, sign-in strength. Light and dark
+   need genuinely different alphas — the dark surface has far less headroom, so
+   the light values turn to fog on it.
+
+   --gate-google-*: the one sanctioned hardcoded colour in the app. Google's
+   brand guidance requires the white surface and #3c4043 label in BOTH themes,
+   so these correctly do not change under [data-theme="dark"]. */
+#auth-overlay {
+  --gate-wash-1: rgba(244,121,91,.17);
+  --gate-wash-2: rgba(240,161,46,.14);
+  --gate-measure: 420px;             /* the rail's text measure */
+  --gate-google-bg: #ffffff;
+  --gate-google-fg: #3c4043;
+  --gate-google-border: rgba(0,0,0,.12);
+  --gate-google-shadow: 0 2px 8px rgba(0,0,0,.12);
+  --gate-google-shadow-hover: 0 6px 18px rgba(0,0,0,.18);
+}
+:root[data-theme="dark"] #auth-overlay {
+  --gate-wash-1: rgba(255,144,104,.19);
+  --gate-wash-2: rgba(255,192,97,.13);
+  --gate-google-shadow: 0 2px 10px rgba(0,0,0,.5);
+  --gate-google-shadow-hover: 0 8px 22px rgba(0,0,0,.6);
+}
+
+/* ---------- the page ---------- */
+/* Opaque on purpose. `.overlay` is a translucent scrim with a backdrop blur,
+   which is right for a dialog over a board and wrong for a sign-in screen —
+   the toolbar and the empty grid showing through made it read as an
+   interruption rather than as its own page. */
+#auth-overlay {
+  inset: 0 0 auto 0;
+  height: 100vh;
+  height: 100dvh;            /* iOS Safari's collapsing URL bar overflows 100vh */
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+  backdrop-filter: none;
+  background:
+    radial-gradient(1100px 760px at 6% -14%, var(--gate-wash-1), transparent 62%),
+    radial-gradient(1000px 720px at 104% 116%, var(--gate-wash-2), transparent 60%),
+    var(--bg);
+}
+
+.gate {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  grid-template-areas: "rail art";
+  align-items: center;
+  color: var(--text);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+/* setBusy(true). Dims the whole page and swallows clicks while a popup or a
+   membership re-check is in flight. */
+.gate.busy { opacity: .68; pointer-events: none; }
+
+/* ---------- left rail ---------- */
+.gate-rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+  max-height: 100%;
+  overflow-y: auto;          /* safety net on a very short viewport only */
+  padding: clamp(32px, 5vw, 72px) clamp(28px, 5vw, 64px);
+}
+
+.gate-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+.gate-brand img { border-radius: 7px; display: block; }
+.gate-eyebrow {
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .14em; color: var(--muted);
+}
+
+.gate-wordmark {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(44px, 6.5vw, 84px);
+  line-height: .98;
+  letter-spacing: -.02em;
+  color: var(--text);
+}
+.gate-wordmark span { display: block; }
+/* Second line carries the accent, so the wordmark has a direction rather than
+   being one big flat block of text. */
+.gate-wordmark span + span { color: var(--accent); }
+
+.gate-sub {
+  margin: 18px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 34ch;
+}
+
+/* One slot, four states. Exactly one section is displayed at a time; the rest
+   of the rail never moves. */
+/* One measure for everything under the wordmark, so the button, the copy, the
+   status line and the footer's rule all share a left AND a right edge. Without
+   it the footer rule ran the full 686px column and nothing else did. */
+.gate-views, .gate-foot, #auth-overlay #gate-status { width: 100%; max-width: var(--gate-measure); }
+.gate-views { margin-top: clamp(26px, 4vh, 40px); }
+.gate section[data-when] { display: none; }
+.gate[data-view="boot"]   section[data-when="boot"],
+.gate[data-view="signin"] section[data-when="signin"],
+.gate[data-view="empty"]  section[data-when="empty"],
+.gate[data-view="denied"] section[data-when="denied"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.gate-lead { margin: 0; font-size: 19px; font-weight: 700; font-family: var(--font-display); }
+.gate-fine {
+  margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); max-width: 42ch;
+}
+.gate-fine b { color: var(--text); font-weight: 800; overflow-wrap: anywhere; }
+
+/* ---------- the Google button ---------- */
+/* Not a `.btn`: brand guidance pins the surface white and the label #3c4043 in
+   both themes, which is the opposite of what every other button here does. */
+.gate-google {
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+  width: min(100%, 360px); height: 52px; padding: 0 24px;
+  border: 1px solid var(--gate-google-border);
+  border-radius: var(--radius-pill);
+  background: var(--gate-google-bg);
+  color: var(--gate-google-fg);
+  font-family: var(--font-body); font-weight: 700; font-size: 15.5px; line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--gate-google-shadow);
+}
+.gate-google svg { width: 20px; height: 20px; flex: 0 0 auto; }
+.gate-google:focus-visible { outline: none; box-shadow: var(--gate-google-shadow), var(--glow-accent); }
+.gate-google:disabled { cursor: default; opacity: .6; }
+
+/* ---------- status + footer ---------- */
+/* Keeps .c-status and its .ok/.err modifiers — gateStatus() writes them and the
+   suite asserts on them — but drops the coloured block, which looked like a
+   toast dropped onto the page. A tinted line belongs in a hero; a chip doesn't. */
+#auth-overlay #gate-status {
+  margin-top: 18px; padding: 0; background: none;
+  font-size: 13px; font-weight: 700; color: var(--muted);
+}
+#auth-overlay #gate-status.ok  { background: none; color: var(--ok-text); }
+#auth-overlay #gate-status.err { background: none; color: var(--err-text); }
+#auth-overlay #gate-status:empty { display: none; }
+
+/* `display: flex` and nothing cleverer: gate.js hides this with an inline
+   style.display = "none" and restores it with "", so the value has to come
+   from here. Do not convert it to a class without changing gate.js. */
+.gate-foot {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  width: 100%; margin-top: 26px;
+  padding-top: 18px; border-top: 1px solid var(--border);
+}
+.gate-who {
+  flex-basis: 100%; font-size: 12px; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- the living Gantt ---------- */
+.gate-art {
+  grid-area: art;
+  position: relative;
+  align-self: stretch;
+  overflow: hidden;
+  pointer-events: none;
+  /* No hard edge between the art and the rail — the bars run off the left of
+     the column and fade rather than stopping at a seam. */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 92%, transparent);
+          mask-image: linear-gradient(to right, transparent, #000 12%, #000 92%, transparent);
+}
+.gate-art-stage {
+  position: absolute; inset: clamp(40px, 9vh, 96px) 0;
+  display: flex; flex-direction: column;
+}
+/* Flex-centred rather than top:50% + a negative margin: a percentage margin
+   resolves against the containing block's WIDTH even when it is margin-top, so
+   the obvious centering trick silently offsets every bar by ~half the stage
+   width. align-items:center costs nothing and is correct. */
+.gate-art-row { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; }
+
+/* The implied weekly ruling, same family as the chart's grid. */
+.gate-art-grid {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    to right, var(--grid-strong) 0 1px, transparent 1px calc(100% / 12));
+  opacity: .5;
+}
+
+/* Bars: the chart's chunky rounded pills. */
+/* In flow, so `height: %` resolves against the row and `margin-left: %`
+   against its width — both of which do what they look like. */
+.gate-bar {
+  position: relative; flex: 0 0 auto;
+  margin-left: var(--x); width: var(--w);
+  height: clamp(9px, 46%, 22px);
+  border-radius: var(--radius-pill);
+  opacity: var(--o, 1);
+  transform-origin: left center;
+  box-shadow: var(--bar-shadow);
+}
+.gate-bar.t-a { background: var(--accent); }
+.gate-bar.t-b { background: var(--accent-2); }
+/* The unstarted-work track. --chip-bg is only a couple of steps off --bg in the
+   light theme and simply vanished; --panel is a step in the same direction in
+   BOTH themes, so one rule reads correctly on cream and on slate. */
+.gate-bar.t-c { background: var(--panel); box-shadow: inset 0 0 0 1.5px var(--border-strong); }
+
+/* Milestones: the chart's candy-gem diamonds, at the same 45deg. */
+.gate-ms {
+  position: absolute; top: 50%; left: var(--x);
+  width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 5px;
+  background: var(--accent-2);
+  border: 2.5px solid var(--bg);
+  box-shadow: var(--bar-shadow);
+  transform: rotate(45deg);
+}
+.gate-ms.alt { background: var(--accent); }
+
+/* The today line, cap and all, exactly as #today-line draws it — dotted here
+   because nothing is actually "now" on a screen with no board behind it. */
+.gate-art-today {
+  position: absolute; top: -16px; bottom: -16px; left: 52%;
+  width: 3px; margin-left: -1.5px; border-radius: 2px;
+  background: repeating-linear-gradient(
+    to bottom, var(--today-line) 0 5px, transparent 5px 11px);
+  opacity: .85;
+}
+.gate-art-today::before {          /* the cap, same geometry as #today-line::before */
+  content: ""; position: absolute; top: -5px; left: -4.5px;
+  width: 12px; height: 12px; border-radius: 50%; background: var(--today-line);
+}
+
+/* Dependency curves. preserveAspectRatio="none" stretches the viewBox to the
+   stage; non-scaling-stroke on the paths is what stops that stretch from
+   turning the stroke into a wedge. */
+.gate-art-deps {
+  position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible;
+}
+.gate-art-deps path {
+  fill: none; stroke: var(--dep); stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round;
+  opacity: .7;
+}
+
+/* ---------- the boot shimmer ---------- */
+/* Exactly the Google button's box, so boot -> signin does not jump. */
+.gate-shimmer {
+  width: min(100%, 360px); height: 52px; border-radius: var(--radius-pill);
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  position: relative; overflow: hidden;
+}
+.gate-shimmer::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 20%, var(--hover) 50%, transparent 80%);
+  transform: translateX(-100%);
+}
+
+/* ---------- motion ----------
+   Transform and opacity only. Never width, height or box-shadow: the hero has
+   14 animated elements and anything that triggers layout janks a slow machine. */
+@media (prefers-reduced-motion: no-preference) {
+  /* Budget, not taste: 14 bars x stagger + duration is how long the hero takes
+     to finish drawing, and a sign-in screen still painting itself a second
+     after load looks broken rather than alive. 13 x 28ms + 420ms lands under
+     800ms and the stagger is still clearly readable as a cascade. */
+  .gate-bar, .gate-ms {
+    animation: gate-bar-in .42s cubic-bezier(.32,.72,0,1) both;
+    animation-delay: calc(var(--i) * 28ms);
+  }
+  .gate-ms { animation-name: gate-ms-in; }
+
+  /* Ambient drift, on the ROWS rather than the bars — the bars own `transform`
+     for the entry animation and a second animation on the same property would
+     simply win. Alternating direction keeps it from reading as a single slab
+     sliding. */
+  .gate-art-row              { animation: gate-drift 21s ease-in-out infinite; }
+  .gate-art-row:nth-child(even) { animation-duration: 24s; animation-direction: reverse; }
+
+  .gate-google { transition: transform .15s ease, box-shadow .15s ease; }
+  .gate-google:hover  { transform: translateY(-1px); box-shadow: var(--gate-google-shadow-hover); }
+  .gate-google:active { transform: translateY(0);    box-shadow: var(--gate-google-shadow); }
+
+  .gate-shimmer::after { animation: gate-shimmer 1.4s ease-in-out infinite; }
+}
+
+@keyframes gate-bar-in {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: var(--o, 1); }
+}
+@keyframes gate-ms-in {
+  from { transform: rotate(45deg) scale(0); opacity: 0; }
+  to   { transform: rotate(45deg) scale(1); opacity: 1; }
+}
+@keyframes gate-drift {
+  0%, 100% { transform: translateY(-2.5px); }
+  50%      { transform: translateY(2.5px); }
+}
+@keyframes gate-shimmer {
+  to { transform: translateX(100%); }
+}
+
+/* ---------- responsive ---------- */
+/* 700-959px: the art becomes a band above the wordmark. Half the rows are
+   dropped so the remaining bars stay thick enough to read as bars. */
+@media (max-width: 959px) {
+  .gate {
+    grid-template-columns: 1fr;
+    grid-template-areas: "art" "rail";
+    /* The band GROWS with the viewport instead of staying 160px. Fixed at
+       160px, a portrait tablet (820x1000, and worse on a real iPad) left the
+       rail centred in an 840px row holding ~340px of content — a ~250px void
+       above the wordmark and another below it. Scaling the band spends that
+       space on the artwork, and keeps the bars bleeding off the top edge,
+       which centring the whole grid as one block would have thrown away. */
+    grid-template-rows: clamp(160px, 32vh, 320px) 1fr;
+    /* stretch, not start: the rail has to FILL the 1fr row before centering
+       inside it means anything. With `start` the rail shrank to its content
+       and pinned it to the top, leaving most of the page empty below. */
+    align-items: stretch;
+  }
+  .gate-rail { justify-content: center; padding-block: clamp(24px, 4vh, 48px); }
+  .gate-art-stage { inset: 14px 0; }
+  .gate-art-row:nth-child(n + 12) { display: none; }   /* +3 non-row children */
+  /* Both curves land in rows that just got hidden, so they would point at
+     nothing. */
+  .gate-art-deps { display: none; }
+  .gate-art {
+    -webkit-mask-image: linear-gradient(to bottom, #000 52%, transparent);
+            mask-image: linear-gradient(to bottom, #000 52%, transparent);
+  }
+}
+
+/* < 700px: no art at all. Everything centred, and the button has to be
+   reachable without a scroll. */
+@media (max-width: 699px) {
+  .gate {
+    grid-template-columns: 1fr;
+    grid-template-areas: "rail";
+    grid-template-rows: 1fr;
+    align-items: center;
+  }
+  .gate-art { display: none; }
+  .gate-rail { justify-content: center; padding: 28px 24px; }
+  .gate-wordmark { font-size: clamp(40px, 13vw, 60px); }
+  .gate-sub { font-size: 15px; margin-top: 14px; }
+  .gate-google { width: 100%; }
+  .gate-shimmer { width: 100%; }
+}
+
+/* Short-and-wide (a laptop in a small window, or landscape on a phone): the
+   wordmark is the thing with slack in it. */
+@media (max-height: 620px) and (min-width: 700px) {
+  .gate-wordmark { font-size: clamp(34px, 4.4vw, 52px); }
+  .gate-sub { margin-top: 12px; font-size: 15px; }
+  .gate-views { margin-top: 22px; }
+}
