@@ -23,6 +23,8 @@
   --z-panel:       151;
   --z-modal:       300;   /* every .overlay — MUST beat the panel */
   --z-toast:       400;   /* beats everything; it reports on them */
+  --z-tip:         500;   /* the hover card: follows the cursor, so it can be
+                             over any of the above and must never be under one */
 
   /* radius scale */
   --radius-sm: 8px;

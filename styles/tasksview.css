@@ -73,9 +73,24 @@ body.tasks-view #today-btn { display: none; }
   margin-top: 3px; color: var(--muted); font-size: 12.5px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* Checkpoint chips. This view has no capsule to draw dots in, so each one
+   becomes a chip carrying the same filled/hollow .tip-dot from base.css. */
+.tv-cps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.tv-cp {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px;
+  background: var(--chip-bg); border-radius: var(--radius-pill); padding: 3px 10px;
+}
+.tv-cp.out { opacity: .6; }
+.tv-cp-date { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
 .tv-side {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
 }
+.tv-owner {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700;
+  background: var(--chip-bg); border-radius: var(--radius-pill); padding: 3px 10px;
+  max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tv-owner svg { width: 13px; height: 13px; flex: 0 0 auto; color: var(--muted); }
 .tv-dates { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
 .tv-progress-wrap { display: flex; align-items: center; gap: 8px; }
 .tv-progress {

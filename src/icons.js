@@ -17,6 +17,7 @@ export const ICONS = {
   unlock: wrap(`<rect x="3" y="11" width="18" height="11" rx="3"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`),
   cloud: wrap(`<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>`),
   plus: wrap(`<path d="M12 5v14M5 12h14"/>`),
+  user: wrap(`<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`),
   check: wrap(`<path d="M20 6 9 17l-5-5"/>`)
 };
 

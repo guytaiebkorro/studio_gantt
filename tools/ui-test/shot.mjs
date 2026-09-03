@@ -39,7 +39,7 @@ const READY_TIMEOUT = 12000;
 const SHOT_TIMEOUT = 30000;
 
 // The surfaces driver.js knows how to build.
-const SURFACES = ["gate", "gateEmpty", "invite"];
+const SURFACES = ["gate", "gateEmpty", "invite", "board", "boardHover", "boardTasks", "editor"];
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : SURFACES;
 for (const s of wanted) {
   if (!SURFACES.includes(s)) {

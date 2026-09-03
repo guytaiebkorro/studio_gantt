@@ -8,6 +8,8 @@ import { esc } from "../dom.js";
 import { addDays, diffDays, parseD, fmtD, dateToX, today, dayWidth, totalDays, chartWidth, progressOf } from "../dates.js";
 import { S, isCollapsed } from "../state.js";
 import { attachBarDrag, attachMilestoneDrag, isSelected } from "../ui/interactions.js";
+import { attachTip, hideTip } from "../ui/tooltip.js";
+import { hasTip, taskTipHtml, checkpointTipHtml, isOutside } from "../ui/taskTip.js";
 import { rowIndexOfTask } from "./index.js";
 
 export function renderHeader(w) {
@@ -100,7 +102,11 @@ export function renderGrid(rows, w, h) {
 }
 
 export function renderBars(rows, w, h) {
-  // remove old bars / milestones / labels
+  // The hover card describes an element that is about to be destroyed — and a
+  // bar vanishing from under the cursor never fires pointerleave.
+  hideTip();
+  // remove old bars / milestones / labels (checkpoint dots live inside a bar,
+  // so they go with it)
   chartBody.querySelectorAll(".bar, .milestone, .ms-label, .gs-label").forEach(e => e.remove());
   const dw = dayWidth();
   rows.forEach((r, idx) => {
@@ -151,6 +157,7 @@ export function renderBars(rows, w, h) {
       m.style.top = (top + (ROW_H - 18) / 2) + "px";
       m.style.background = r.color;
       m.dataset.id = t.id;
+      if (hasTip(t)) attachTip(m, taskTipHtml(t));
       chartBody.appendChild(m);
       const lbl = document.createElement("div");
       lbl.className = "ms-label";
@@ -184,10 +191,45 @@ export function renderBars(rows, w, h) {
                          <span class="label">${esc(t.name)}</span>
                          <div class="handle r"></div>`;
       }
+      renderCheckpoints(bar, t, x, bw);
+      if (hasTip(t)) attachTip(bar, taskTipHtml(t));
       chartBody.appendChild(bar);
       attachBarDrag(bar, t);
     }
   });
+}
+
+// Checkpoint dots inside a task's capsule, one per date. Appended AFTER the
+// bar's innerHTML so they paint over the absolutely-positioned .fill.
+//
+// Only the x is set here: .cp-dot centres itself with translateX(-50%) and sits
+// in the bar's bottom band, so this function never has to know a dot's size.
+// The bar gets .has-cps, which is what hands that band over (see chart.css).
+//
+// Dots keep default pointer-events on purpose: pointerdown bubbles to the bar,
+// so grabbing one drags the task exactly like grabbing anywhere else (only
+// .handle is excluded, in attachBarDrag).
+const CP_EDGE = 5; // keep a clamped dot's full width inside the capsule
+function renderCheckpoints(bar, t, x, bw) {
+  const cps = t.checkpoints || [];
+  if (!cps.length) return;
+  bar.classList.add("has-cps");
+  const dw = dayWidth();
+  const now = fmtD(today());
+  for (const c of cps) {
+    // Centre of the checkpoint's day column (the +dw/2 the today line uses too),
+    // in bar-local coordinates — then clamped, so a date outside the task's span
+    // pins to the capsule's edge instead of being clipped away by
+    // .bar { overflow: hidden } and disappearing without a trace.
+    const cx = Math.max(CP_EDGE, Math.min(bw - CP_EDGE, dateToX(parseD(c.date)) + dw / 2 - x));
+    const dot = document.createElement("span");
+    dot.className = "cp-dot"
+                  + (c.date <= now ? " done" : "")
+                  + (isOutside(t, c) ? " out" : "");
+    dot.style.left = cx + "px";
+    attachTip(dot, checkpointTipHtml(t, c));
+    bar.appendChild(dot);
+  }
 }
 
 export function renderDeps(rows) {

@@ -34,6 +34,46 @@ body::before {
 }
 .done-badge svg { width: 11px; height: 11px; }
 
+/* ---------- Hover card (src/ui/tooltip.js) ---------- */
+/* Hidden with visibility rather than display, so offsetWidth/offsetHeight are
+   measurable before the first show — that measurement is what keeps the card
+   inside the viewport. pointer-events: none so it can never eat a click or
+   trigger the pointerleave that would hide it. */
+.tip {
+  position: fixed; left: 0; top: 0; z-index: var(--z-tip);
+  max-width: 280px; padding: 9px 11px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  font-size: 12px; line-height: 1.45;
+  opacity: 0; visibility: hidden; transition: opacity .12s;
+  pointer-events: none;
+}
+.tip.show { opacity: 1; visibility: visible; }
+.tip-name { font-weight: 800; font-size: 12.5px; }
+.tip-dates { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-top: 1px; }
+.tip-owner {
+  display: flex; align-items: center; gap: 5px; margin-top: 6px; font-weight: 700;
+}
+.tip-owner svg { width: 13px; height: 13px; flex: 0 0 auto; color: var(--muted); }
+.tip-note { margin-top: 6px; color: var(--muted); font-size: 11px; }
+.tip-cps {
+  margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.tip-cp { display: flex; align-items: center; gap: 6px; }
+.tip-cp-date { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); flex: 0 0 auto; }
+.tip-cp-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Inline twin of the chart's .cp-dot — same filled/hollow language, minus the
+   absolute positioning. Shared by the hover card and the Tasks view's chips. */
+.tip-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+  border: 2px solid var(--accent); background: transparent;
+}
+.tip-dot.done { background: var(--accent); }
+.tip-dot.out { border-color: var(--muted); }
+.tip-dot.out.done { background: var(--muted); }
+
 /* themed scrollbars */
 * { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }

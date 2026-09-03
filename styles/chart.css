@@ -94,6 +94,39 @@
   pointer-events: none; z-index: 9;
 }
 
+/* Checkpoint dots inside a task's capsule.
+   Anchored to the BOTTOM, not the middle: centred, every dot that landed under
+   the bar's name fought with the text. The bar is split into two bands instead
+   — the label gets the top 16px (see .bar.has-cps below), the dots the bottom
+   10px — so on a solid pill the two never touch.
+   translateX(-50%) does the horizontal centring, so chart.js only has to know
+   the dot's date, not its width.
+   The 2px --panel ring is the same trick .milestone uses below, and the hairline
+   box-shadow keeps it readable over both the bar colour and the lighter .fill
+   wash. Hollow = still ahead, filled = the date has passed — derived at render
+   time from the date, never stored. */
+.cp-dot {
+  position: absolute; bottom: 1px; transform: translateX(-50%);
+  width: 9px; height: 9px; border-radius: 50%; z-index: 3;
+  border: 2px solid var(--panel); background: transparent;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.18);
+}
+.cp-dot.done { background: var(--panel); }
+/* pinned to the edge because its date is outside the task's span */
+.cp-dot.out { opacity: .5; }
+/* The bottom band belongs to the dots, so the label gives it up: top-aligned in
+   a line box just tall enough for its own glyphs (12px Nunito needs ~15.6px),
+   leaving the bottom 10px of the 26px bar clear.
+   A .parent bar is the exception — its 2.5px frame leaves only 21px inside, and
+   16 + 10 doesn't fit in 21. Its dots ride a little higher and can still brush a
+   descender; the ring keeps them apart. Shrinking that label to make room would
+   cost more than the overlap does. */
+.bar.has-cps .label { align-self: flex-start; height: 16px; line-height: 16px; }
+/* a parent bar is a pale tint of its own colour, so a --panel dot would vanish
+   into it — wear its frame colour instead */
+.bar.parent .cp-dot { border-color: var(--parent-frame); }
+.bar.parent .cp-dot.done { background: var(--parent-frame); }
+
 /* milestones: candy-gem diamonds (18×18 — chart.js hardcodes the 9px half-size) */
 .milestone {
   position: absolute; width: 18px; height: 18px; transform: rotate(45deg);

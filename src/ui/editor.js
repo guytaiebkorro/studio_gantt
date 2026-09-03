@@ -4,7 +4,8 @@
 // ---------------------------------------------------------------------------
 import { COLORS } from "../config.js";
 import { $, esc, toast, wireBackdropClose } from "../dom.js";
-import { S, markDirty, snapshot, restoreState, uid, childrenOf, subtreeIds, colorOf } from "../state.js";
+import { S, markDirty, snapshot, restoreState, uid, childrenOf, subtreeIds, colorOf,
+         normalizeCheckpoints } from "../state.js";
 import { canEdit, requireEdit } from "../permissions.js";
 import { today, fmtD, addDays, parseD } from "../dates.js";
 import { render } from "../render/index.js";
@@ -30,6 +31,7 @@ export function openEditor(id, preset) {
   if (t) {
     $("f-name").value = t.name;
     if ($("f-description")) $("f-description").value = t.description || "";
+    if ($("f-owner")) $("f-owner").value = t.owner || "";
     $("f-group").value = t.groupId || (S.state.groups[0] && S.state.groups[0].id) || "";
     $("f-parent").value = t.parentId || "";
     $("f-milestone").checked = !!t.isMilestone;
@@ -44,6 +46,7 @@ export function openEditor(id, preset) {
     const preParent = preset.parentId ? S.state.tasks.find(x => x.id === preset.parentId) : null;
     $("f-name").value = "";
     if ($("f-description")) $("f-description").value = "";
+    if ($("f-owner")) $("f-owner").value = "";
     $("f-group").value = (preParent && preParent.groupId) || preset.groupId
                          || (S.state.groups[0] && S.state.groups[0].id) || "";
     $("f-parent").value = preParent ? preParent.id : "";
@@ -56,6 +59,7 @@ export function openEditor(id, preset) {
     $("f-duplicate").style.display = "none";
   }
   buildDepList(id);
+  renderCheckpointRows(t ? t.checkpoints : []);
   toggleMilestoneUI();
   syncHierarchyUI();
   edOverlay.classList.add("show");
@@ -113,9 +117,76 @@ function buildDepList(id) {
      ${c.isMilestone ? "◆ " : ""}${esc(c.name)}</label>`).join("");
 }
 
+// ---------------------------------------------------------------------------
+// Checkpoints (the dots inside a task's bar — not the Milestone checkbox above).
+//
+// Rows are built here and read back off the DOM on Save, exactly like #f-deps:
+// the form is the working copy, so Cancel throws the lot away and nothing is
+// committed halfway.
+// ---------------------------------------------------------------------------
+function renderCheckpointRows(list) {
+  const box = $("f-checkpoints");
+  if (!box) return;                       // older saved-HTML shell: no section
+  box.innerHTML = "";
+  (list || []).forEach(c => box.appendChild(cpRow(c)));
+  updateCheckpointHint();
+}
+
+function cpRow(c) {
+  const row = document.createElement("div");
+  row.className = "cp-row";
+  row.dataset.cpId = c.id || "";          // empty on a new row; normalize mints one
+  row.innerHTML =
+    `<input type="date" class="cp-date" value="${esc(c.date || "")}">
+     <input type="text" class="cp-label" placeholder="Label…" value="${esc(c.label || "")}">
+     <button type="button" class="cp-del" title="Remove this checkpoint"
+             aria-label="Remove this checkpoint">×</button>`;
+  row.querySelector(".cp-del").addEventListener("click", () => { row.remove(); updateCheckpointHint(); });
+  return row;
+}
+
+// Returns null when the section isn't in the document at all, which the caller
+// reads as "keep whatever was stored" rather than "the task has none".
+function readCheckpoints() {
+  const box = $("f-checkpoints");
+  if (!box) return null;
+  // Rows with no date are dropped, not defaulted: a blank date input is an
+  // abandoned row, not a checkpoint on some guessed day. normalizeCheckpoints
+  // then mints ids for the new rows and sorts, the same as loading a board does.
+  return normalizeCheckpoints(Array.from(box.querySelectorAll(".cp-row")).map(row => ({
+    id: row.dataset.cpId,
+    date: row.querySelector(".cp-date").value,
+    label: row.querySelector(".cp-label").value
+  })));
+}
+
+// A checkpoint outside the task's span is still drawn — pinned to the capsule's
+// edge — so say so here rather than letting it look misplaced on the bar.
+function updateCheckpointHint() {
+  const hint = $("f-cp-hint"), box = $("f-checkpoints");
+  if (!hint || !box) return;
+  const rows = Array.from(box.querySelectorAll(".cp-row"));
+  const start = $("f-start").value, end = $("f-end").value || start;
+  const out = !start ? 0 : rows.filter(r => {
+    const d = r.querySelector(".cp-date").value;
+    return d && (d < start || d > end);
+  }).length;
+  if (out) {
+    hint.textContent = out > 1
+      ? `${out} checkpoints fall outside this task’s dates — they’ll sit at the bar’s edge.`
+      : `1 checkpoint falls outside this task’s dates — it’ll sit at the bar’s edge.`;
+  } else {
+    hint.textContent = rows.length ? "" : "Dated dots drawn inside this task’s bar.";
+  }
+}
+
 export function toggleMilestoneUI() {
   const ms = $("f-milestone").checked;
   $("end-wrap").style.display = ms ? "none" : "";
+  // A milestone is a single day drawn as a diamond: there is no capsule for
+  // checkpoint dots to sit inside. Its stored checkpoints are kept, just
+  // dormant, so unticking this brings them straight back.
+  if ($("checkpoints-wrap")) $("checkpoints-wrap").style.display = ms ? "none" : "";
   // older saved-HTML shells still contain the removed progress slider — hide it
   if ($("progress-wrap")) $("progress-wrap").style.display = "none";
 }
@@ -178,6 +249,21 @@ $("f-group").addEventListener("change", () => {
 // picking a parent locks the group + colour and previews the inherited colour
 $("f-parent").addEventListener("change", syncHierarchyUI);
 
+// --- checkpoints (guarded: an older saved-HTML shell has none of these) ---
+if ($("f-cp-add")) $("f-cp-add").addEventListener("click", () => {
+  // A new row starts on the task's start date — the near-certain intent, and it
+  // keeps the dot inside the bar instead of pinned to an edge.
+  const box = $("f-checkpoints");
+  box.appendChild(cpRow({ date: $("f-start").value || fmtD(today()), label: "" }));
+  updateCheckpointHint();
+  box.lastElementChild.querySelector(".cp-label").focus();
+});
+// one delegated listener, so rows added later are covered
+if ($("f-checkpoints")) $("f-checkpoints").addEventListener("input", updateCheckpointHint);
+// moving the task's span can push a checkpoint outside it
+$("f-start").addEventListener("change", updateCheckpointHint);
+$("f-end").addEventListener("change", updateCheckpointHint);
+
 $("f-cancel").addEventListener("click", closeEditor);
 wireBackdropClose(edOverlay, closeEditor);
 
@@ -189,6 +275,7 @@ $("f-save").addEventListener("click", () => {
   const prev = S.editingId ? S.state.tasks.find(x => x.id === S.editingId) : null;
   // older saved-HTML shells have no description field — keep the stored value
   const description = $("f-description") ? $("f-description").value.trim() : ((prev && prev.description) || "");
+  const owner = $("f-owner") ? $("f-owner").value.trim() : ((prev && prev.owner) || "");
   const hasKids = prev ? childrenOf(prev.id).length > 0 : false;
   const parent = S.state.tasks.find(x => x.id === $("f-parent").value) || null;
   const parentId = (parent && !hasKids) ? parent.id : null;
@@ -205,6 +292,12 @@ $("f-save").addEventListener("click", () => {
   const groupId = parent ? (parent.groupId || null) : ($("f-group").value || null);
   const deps = Array.from($("f-deps").querySelectorAll("input:checked")).map(i => i.value);
 
+  // A milestone's checkpoint section is hidden, so its inputs are not the truth
+  // — keep what was stored, the same rule the colour picker follows for a
+  // subtask below. `null` means the section isn't in this shell at all.
+  const readCps = readCheckpoints();
+  const checkpoints = (isMs || readCps === null) ? ((prev && prev.checkpoints) || []) : readCps;
+
   // Colour: a subtask RENDERS its parent's colour, so its own field is left
   // exactly as it was — nesting never destroys it and un-nesting restores it.
   // The colour picker is disabled in that state, so reading it would be wrong.
@@ -217,9 +310,11 @@ $("f-save").addEventListener("click", () => {
 
   if (S.editingId) {
     const t = S.state.tasks.find(x => x.id === S.editingId);
-    Object.assign(t, { name, description, groupId, parentId, start, end, isMilestone: isMs, deps, color });
+    Object.assign(t, { name, description, owner, groupId, parentId, start, end,
+                       isMilestone: isMs, deps, color, checkpoints });
   } else {
-    const t = { id: uid("t"), name, description, groupId, parentId, start, end, isMilestone: isMs, deps, color };
+    const t = { id: uid("t"), name, description, owner, groupId, parentId, start, end,
+                isMilestone: isMs, deps, color, checkpoints };
     if (parentId) {
       // place a new subtask after its parent's last existing child
       const sibs = childrenOf(parentId);
@@ -278,6 +373,9 @@ $("f-duplicate").addEventListener("click", () => {
   });
   [copy, ...kidCopies].forEach(c => {
     c.deps = (Array.isArray(c.deps) ? c.deps : []).map(d => idMap[d] || d);
+    // Checkpoint ids only key rows within one task, so sharing them across the
+    // copy would be harmless — but reminting keeps "an id names one thing" true.
+    c.checkpoints = (c.checkpoints || []).map(cp => ({ ...cp, id: uid("c") }));
   });
 
   // place the copy after the original's last subtask, so neither block is split

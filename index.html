@@ -251,6 +251,13 @@
         <label>Description</label>
         <textarea id="f-description" rows="3" placeholder="Optional notes…"></textarea>
       </div>
+      <!-- A free string, not a member picker: an owner may be someone who has
+           never opened the app, and a board is exportable away from the
+           workspace whose member list would back such a picker. -->
+      <div>
+        <label>Owner</label>
+        <input type="text" id="f-owner" autocomplete="off" placeholder="Optional — who owns this">
+      </div>
       <div class="row2">
         <div>
           <label>Group</label>
@@ -288,6 +295,15 @@
           </div>
         </div>
         <div class="hint" id="f-dates-hint"></div>
+      </div>
+      <!-- Checkpoints: dated dots drawn inside this task's own capsule. NOT the
+           same thing as the "Milestone" checkbox above, which turns the task
+           itself into a zero-duration ◆ row. Rows are built by editor.js. -->
+      <div id="checkpoints-wrap">
+        <label>Checkpoints</label>
+        <div class="cp-list" id="f-checkpoints"></div>
+        <button class="btn cp-add" id="f-cp-add" type="button">＋ Add checkpoint</button>
+        <div class="hint" id="f-cp-hint"></div>
       </div>
       <div>
         <label>Depends on (must finish first)</label>

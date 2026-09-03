@@ -111,13 +111,47 @@ export function normalize(data) {
     delete t.progress; // legacy field — progress is now derived from dates (see dates.js progressOf)
     t.isMilestone = !!t.isMilestone;
     t.description = typeof t.description === "string" ? t.description : "";
+    t.owner = typeof t.owner === "string" ? t.owner.trim() : "";       // absent in pre-owner boards
     t.parentId = typeof t.parentId === "string" ? t.parentId : null; // absent in pre-subtask boards
+    t.checkpoints = normalizeCheckpoints(t.checkpoints);
     if (!t.end) t.end = t.start;
     if (!t.id) t.id = uid("t");
   });
   repairHierarchy(s);
   recomputeRollups(s);
   return s;
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoints
+//
+// Dated dots drawn INSIDE a task's capsule — a key date within the task's span
+// (design freeze, code cutoff) that doesn't deserve a row of its own.
+//
+// NOT the same thing as a MILESTONE (`t.isMilestone`), which is a zero-duration
+// task rendered as its own ◆ row. The two share nothing but the English word,
+// which is exactly why nothing here is called "milestone".
+//
+// Stored as `t.checkpoints`: [{ id, date: "YYYY-MM-DD", label }]. `label` may be
+// empty — readers fall back to the date. Kept sorted by date so render order and
+// merge comparisons are deterministic (ISO dates compare chronologically as
+// strings, the same assumption recomputeRollups already makes).
+//
+// Checkpoints deliberately do NOT roll up to a parent task: a parent's span is
+// derived from its children, so drawing their dots on it too would double-count.
+// ---------------------------------------------------------------------------
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function normalizeCheckpoints(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(c => c && typeof c === "object" && DATE_RE.test(c.date))
+    .map(c => ({
+      id: typeof c.id === "string" && c.id ? c.id : uid("c"),
+      date: c.date,
+      label: typeof c.label === "string" ? c.label.trim() : ""
+    }))
+    .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 }
 
 // ---------------------------------------------------------------------------

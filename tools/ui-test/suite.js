@@ -489,5 +489,6 @@ for (const role of ["viewer"]) {
 await import("./cases/invite.js");
 await import("./cases/gate.js");
 await import("./cases/session.js");
+await import("./cases/checkpoints.js");
 
 rep("__DONE__");
