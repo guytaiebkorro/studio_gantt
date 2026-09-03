@@ -312,13 +312,34 @@
 <!-- Invite dialog. This one IS an .overlay, deliberately: uiBusy() treats it as
      an edit in progress and pauses syncing, which is right for a modal you are
      filling in. Inviting is a commitment and gets focus, rather than being an
-     inline row you can fat-finger. -->
+     inline row you can fat-finger.
+
+     NOTE: wireBackdropClose() from src/dom.js is deliberately NOT wired here,
+     unlike the two editor overlays. Send or Cancel are the only ways out — you
+     can lose a typed address by brushing the backdrop, and this dialog is modal
+     over the workspace panel, so a stray backdrop click used to take the panel
+     with it as well. closePanel() refuses while this is open; see panel.js. -->
 <div class="overlay" id="invite-dialog">
-  <div class="modal invite-modal">
-    <h3>Invite to <span id="invite-ws"></span></h3>
+  <div class="modal invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-title">
+    <h3 id="invite-title">Invite to <span class="invite-ws" id="invite-ws"></span></h3>
     <div class="body">
-      <input type="email" id="invite-email" autocomplete="off" spellcheck="false"
-             placeholder="name@company.com" aria-label="Email address">
+      <!-- The hero of the dialog. The wrapper carries the icon, the floating
+           label and the state slot; the <input> stays a bare input so
+           #invite-email keeps its id, its type and its Enter-to-submit.
+           placeholder=" " (one space) is load-bearing: :placeholder-shown is
+           what drives the CSS-only floating label. -->
+      <div class="invite-field" id="invite-field">
+        <svg class="invite-field-icon" viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true"><rect x="2.6" y="4.6" width="18.8" height="14.8" rx="3.2"/><path d="m3.6 7.2 7.3 5.4a2 2 0 0 0 2.2 0l7.3-5.4"/></svg>
+        <input type="email" id="invite-email" autocomplete="off" spellcheck="false"
+               placeholder=" " aria-label="Email address" aria-describedby="invite-field-msg">
+        <label for="invite-email">Email address</label>
+        <span class="invite-field-state" aria-hidden="true"></span>
+      </div>
+      <!-- One reserved line. Never scolds while you type: panel.js validates on
+           blur and on submit, and any keystroke clears it again. -->
+      <p class="invite-field-msg" id="invite-field-msg"></p>
       <!-- Roles as a segmented control. The one line of meaning below it
            replaces the paragraph that used to explain all three at once. -->
       <div class="wp-segs" id="invite-roles" role="radiogroup" aria-label="Permission level">
@@ -327,12 +348,16 @@
         <button class="wp-seg" type="button" data-role="admin" role="radio" aria-checked="false">Admin</button>
       </div>
       <p class="wp-note" id="invite-role-note"></p>
-      <div class="c-status" id="invite-status" style="display:none"></div>
     </div>
     <div class="foot">
       <button class="btn" id="invite-cancel">Cancel</button>
       <button class="btn primary" id="invite-send">Send invite</button>
     </div>
+    <!-- Server-side outcomes only ("Inviting…", a rules rejection). It keeps the
+         id and the .c-status classes that inviteStatus() sets, but sits BELOW
+         the footer as a quiet line rather than a coloured block in the body:
+         field-level problems belong on the field. -->
+    <div class="c-status" id="invite-status" style="display:none"></div>
   </div>
 </div>
 

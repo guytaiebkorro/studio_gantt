@@ -4,13 +4,212 @@
    Carved out of panel.css: the invite dialog is a modal that happens to be
    opened FROM the panel, not a part of it. Loaded AFTER modals.css so it can
    out-specify the generic `.modal input[type=email]` rule in there.
-   ============================================================ */
-.invite-modal { max-width: 400px; }
-.invite-modal .body { display: flex; flex-direction: column; gap: 14px; }
-#invite-email { width: 100%; }
 
-/* Segmented role control. A pill track with pill segments — one accent fill
-   marks the choice, and the line beneath explains only that one. */
+   SPECIFICITY, the thing that will waste your afternoon: modals.css:27 styles
+   `.modal input[type=email]` (0,2,1) and modals.css:34 styles
+   `.modal input:focus` (0,2,1). Every rule for the field below is scoped under
+   `.invite-modal .invite-field`, which lands at (0,3,1) or better and therefore
+   actually wins. Loosen a selector and the field silently reverts to a generic
+   9px-padded box.
+
+   The dialog follows the panel's language rather than the editor's: pill chips,
+   real elevation, one hairline per region, and the accent used only to mean
+   "this is the live thing".
+   ============================================================ */
+
+/* --- local tokens ---------------------------------------------------------
+   CANDIDATES FOR PROMOTION to styles/tokens.css. They are defined here and not
+   there only because tokens.css is a shared file that two parallel agents were
+   both forbidden to touch. The two glows are derived from --danger / --ok with
+   color-mix rather than hardcoded, so they follow the theme for free and there
+   is no literal colour anywhere in this file. */
+.invite-modal {
+  --invite-field-h: 56px;
+  --glow-danger: 0 0 0 3px color-mix(in srgb, var(--danger) 24%, transparent);
+  --glow-ok:     0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent);
+}
+
+.invite-modal {
+  width: 420px; max-width: calc(100vw - 32px);
+  /* A 4px accent-to-accent-2 rule across the top. The modal's own
+     `background: var(--modal-bg)` shorthand in modals.css sets the colour; this
+     longhand adds the image on top of it without disturbing that. */
+  background-image: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background-repeat: no-repeat;
+  background-size: 100% 3px;
+  background-position: top left;
+  padding-top: 3px;
+}
+
+/* ---------- heading ---------- */
+/* No hairline under it: the field below is the strongest edge in the dialog and
+   a second rule 40px above it just fences the title in. */
+.invite-modal h3 {
+  border-bottom: none;
+  padding: 20px 22px 4px;
+  font-size: 18px;
+  gap: 8px; flex-wrap: wrap;
+}
+/* The workspace name as a chip, so the heading has a focal point instead of
+   trailing off into a proper noun. Keeps #invite-ws's plain-text content. */
+.invite-modal .invite-ws {
+  font-family: var(--font-body);
+  font-size: 12.5px; font-weight: 800; letter-spacing: .01em;
+  color: var(--accent); background: var(--chip-bg);
+  padding: 4px 11px; border-radius: var(--radius-pill);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.invite-modal .body {
+  padding: 14px 22px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+/* ---------- the field ----------------------------------------------------
+   A 56px slab, not a form control: envelope glyph in the left inset, floating
+   label, and a right slot that carries the ✓ / ! / spinner. The <input> itself
+   is stripped to nothing and stretched over the slab, so the slab is what
+   paints the border, the background and the focus ring. */
+/* NOTE ON THE RESTING SURFACE: --input-bg and --panel are both the same colour
+   as --modal-bg in BOTH themes, so a field painted with either of them is
+   invisible against the dialog and reads as a floating outline. It rests on
+   --chip-bg — the same surface the role track below it uses, which is the
+   point: these are the two things you touch — and shifts to --panel-2 when
+   focused. Both are distinct from --modal-bg in both themes, so the slab never
+   dissolves into the dialog, and focus is a change of material as well as a
+   coloured edge. */
+.invite-modal .invite-field {
+  position: relative;
+  height: var(--invite-field-h);
+  border-radius: var(--radius-md);
+  background: var(--chip-bg);
+  border: 1px solid var(--border-strong);
+  transition: border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+}
+
+.invite-modal .invite-field input[type=email] {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  /* Top-heavy padding leaves the floated label its own line inside the slab. */
+  padding: 22px 44px 6px 44px;
+  font: inherit; font-size: 15px; font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--text);
+  background: none;
+  border: none; border-radius: inherit;
+  outline: none; box-shadow: none;
+}
+/* Beats `.modal input:focus`, which would otherwise draw a ring on the input
+   AND on the slab behind it. The slab owns the focus state. */
+.invite-modal .invite-field input[type=email]:focus {
+  outline: none; border: none; box-shadow: none;
+}
+/* An email field is exactly what a browser wants to autofill, and Chrome's
+   default is an opaque pale-yellow wash that repaints the slab and hides the
+   glyph. The inset shadow is the only way to override it. */
+.invite-modal .invite-field input[type=email]:-webkit-autofill,
+.invite-modal .invite-field input[type=email]:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 100px var(--chip-bg) inset;
+  box-shadow: 0 0 0 100px var(--chip-bg) inset;
+  caret-color: var(--text);
+}
+
+.invite-modal .invite-field-icon {
+  position: absolute; left: 15px; top: 50%;
+  transform: translateY(-50%);
+  width: 18px; height: 18px;
+  color: var(--muted);
+  pointer-events: none;
+  transition: color .14s ease;
+}
+
+/* Centred like a placeholder at rest; a small caption above the text once the
+   field is focused or has anything in it. `input:not(:placeholder-shown)` is
+   why the markup carries placeholder=" ". */
+.invite-modal .invite-field label {
+  position: absolute; left: 44px; top: 50%;
+  margin: 0;
+  display: block;
+  font-size: 15px; font-weight: 600;
+  color: var(--muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  transition: transform .14s ease, color .14s ease;
+  white-space: nowrap;
+}
+.invite-modal .invite-field:focus-within label,
+.invite-modal .invite-field input[type=email]:not(:placeholder-shown) + label {
+  transform: translateY(calc(-50% - 13px)) scale(.72);
+}
+.invite-modal .invite-field:focus-within label { color: var(--accent); }
+
+.invite-modal .invite-field-state {
+  position: absolute; right: 15px; top: 50%;
+  transform: translateY(-50%);
+  width: 18px; height: 18px;
+  display: grid; place-items: center;
+  font-size: 13px; font-weight: 900; line-height: 1;
+  pointer-events: none;
+}
+
+/* focus */
+.invite-modal .invite-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent);
+  background: var(--panel-2);
+}
+.invite-modal .invite-field:focus-within .invite-field-icon { color: var(--accent); }
+
+/* valid — a quiet confirmation, not a party: no fill, just the tick. */
+.invite-modal .invite-field.is-valid { border-color: var(--ok); }
+.invite-modal .invite-field.is-valid:focus-within { box-shadow: var(--glow-ok); }
+.invite-modal .invite-field.is-valid .invite-field-state::before {
+  content: "\2713"; color: var(--ok);
+}
+
+/* invalid — wins over :focus-within, because the point of showing it while the
+   caret is back in the field is that it is still wrong. */
+.invite-modal .invite-field.is-invalid,
+.invite-modal .invite-field.is-invalid:focus-within {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  box-shadow: none;
+}
+.invite-modal .invite-field.is-invalid:focus-within { box-shadow: var(--glow-danger); }
+.invite-modal .invite-field.is-invalid .invite-field-icon,
+.invite-modal .invite-field.is-invalid label { color: var(--err-text); }
+.invite-modal .invite-field.is-invalid .invite-field-state::before {
+  content: "!"; color: var(--danger);
+}
+
+/* in flight — the slot becomes a 2px ring and the field stops accepting input,
+   so a second Enter cannot fire a second invite. */
+.invite-modal .invite-field.is-busy { pointer-events: none; opacity: .8; }
+.invite-modal .invite-field.is-busy .invite-field-state {
+  width: 16px; height: 16px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: var(--radius-pill);
+  animation: invite-spin .7s linear infinite;
+}
+
+@keyframes invite-spin { to { transform: translateY(-50%) rotate(360deg); } }
+
+/* One reserved line, so showing or clearing a message never moves the segments
+   underneath it. */
+.invite-modal .invite-field-msg {
+  margin: -6px 0 -2px;
+  min-height: 16px;
+  font-size: 12.5px; line-height: 1.35;
+  color: var(--muted);
+}
+.invite-modal .invite-field-msg.err { color: var(--err-text); font-weight: 600; }
+
+/* ---------- segmented role control ----------
+   A pill track with pill segments — one accent fill marks the choice, and the
+   line beneath explains only that one. */
 .wp-segs {
   display: flex; gap: 3px; padding: 3px;
   background: var(--chip-bg); border-radius: var(--radius-pill);
@@ -18,7 +217,7 @@
 .wp-seg {
   flex: 1; font: inherit; font-size: 12.5px; font-weight: 700;
   color: var(--muted); background: none; border: none;
-  padding: 8px 6px; border-radius: var(--radius-pill);
+  padding: 9px 6px; border-radius: var(--radius-pill);
   cursor: pointer; transition: background .12s ease, color .12s ease;
 }
 .wp-seg:hover { color: var(--text); }
@@ -27,4 +226,27 @@
   box-shadow: var(--bar-shadow);
 }
 .wp-seg:focus-visible { outline: none; box-shadow: var(--glow-accent); }
-.wp-note { margin: 0; font-size: 12.5px; color: var(--muted); min-height: 1.5em; }
+.wp-note { margin: 0; font-size: 12.5px; color: var(--muted); min-height: 1.5em; line-height: 1.4; }
+
+/* ---------- footer & status ---------- */
+.invite-modal .foot { padding: 14px 22px; }
+/* Server-side outcomes only, and they read as a line of prose under the dialog
+   rather than the coloured block .c-status paints elsewhere. The class names
+   still apply — inviteStatus() sets them and the suite asserts on them. */
+.invite-modal #invite-status {
+  padding: 0 22px 16px;
+  background: none;
+  border-radius: 0;
+  font-size: 12.5px; line-height: 1.4;
+  color: var(--muted);
+}
+.invite-modal #invite-status.err { background: none; color: var(--err-text); }
+.invite-modal #invite-status.ok  { background: none; color: var(--ok-text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-modal .invite-field,
+  .invite-modal .invite-field label,
+  .invite-modal .invite-field-icon,
+  .wp-seg { transition: none; }
+  .invite-modal .invite-field.is-busy .invite-field-state { animation: none; }
+}
