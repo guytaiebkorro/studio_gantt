@@ -488,5 +488,6 @@ for (const role of ["viewer"]) {
 // module would deadlock — see the note at the top of harness.js.
 await import("./cases/invite.js");
 await import("./cases/gate.js");
+await import("./cases/session.js");
 
 rep("__DONE__");
