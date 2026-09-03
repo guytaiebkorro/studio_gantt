@@ -1,8 +1,11 @@
 /* ============================================================
    MODALS / EDITOR, toast, and view-only (locked) mode
    ============================================================ */
+/* Every modal surface. --z-modal beats the workspace panel deliberately: an
+   .overlay opened FROM the panel (the invite dialog) has to cover it, and used
+   to paint underneath it. See the z-layer scale in tokens.css. */
 .overlay {
-  position: fixed; inset: 0; background: var(--overlay); z-index: 100;
+  position: fixed; inset: 0; background: var(--overlay); z-index: var(--z-modal);
   display: none; align-items: center; justify-content: center;
   backdrop-filter: blur(2px);
 }
@@ -76,7 +79,7 @@
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
   background: var(--toast-bg); color: #fff; padding: 10px 18px; border-radius: var(--radius-pill); font-size: 13px;
   border: none; box-shadow: 0 8px 24px rgba(70,54,42,.3);
-  z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none;
+  z-index: var(--z-toast); opacity: 0; transition: opacity .2s; pointer-events: none;
 }
 .toast.show { opacity: 1; }
 
@@ -113,21 +116,11 @@ body.locked .list-row.task-row { cursor: pointer; }
 
 
 /* ---------- Startup gate (#auth-overlay) ---------- */
-/* Non-dismissable: no close button, and nothing wires a backdrop-close. */
-.modal.gate { max-width: 420px; }
-.modal.gate section { display: none; }
-.modal.gate[data-view="boot"]   section[data-when="boot"],
-.modal.gate[data-view="signin"] section[data-when="signin"],
-.modal.gate[data-view="picker"] section[data-when="picker"],
-.modal.gate[data-view="empty"]  section[data-when="empty"],
-.modal.gate[data-view="denied"] section[data-when="denied"] { display: block; }
-.modal.gate.busy { opacity: .7; pointer-events: none; }
-.gate-lead { font-size: 15px; font-weight: 700; margin: 0 0 12px; }
-.gate-google { display: inline-flex; align-items: center; gap: 10px; width: 100%; justify-content: center; }
-.gate-foot { flex-wrap: wrap; }
-.gate-who { margin-right: auto; font-size: 12px; color: var(--muted); }
-#gate-status { margin-top: 12px; }
-#gate-other-label { margin-top: 14px; }
+/* Moved to styles/gate.css, which loads after this file so it can override the
+   generic .modal chrome. Two dead rules went with the move rather than being
+   copied: `[data-view="picker"]` (the gate lost its workspace picker — the
+   panel is the app's only workspace list) and `#gate-other-label` (no such
+   element exists). */
 
 /* Role chips, shared by the gate's workspace rows and the People list. */
 .ws-badge.role-admin  { color: var(--ok-text);   background: var(--ok-bg); }

@@ -1,0 +1,21 @@
+/* ============================================================
+   STARTUP GATE (#auth-overlay)
+
+   Carved out of modals.css. Loaded AFTER it, so these rules win over the
+   generic `.modal` chrome.
+
+   Non-dismissable by construction: no close button, nothing wires a backdrop
+   close, and main.js's Escape handler deliberately does not name it.
+   ============================================================ */
+.modal.gate { max-width: 420px; }
+.modal.gate section { display: none; }
+.modal.gate[data-view="boot"]   section[data-when="boot"],
+.modal.gate[data-view="signin"] section[data-when="signin"],
+.modal.gate[data-view="empty"]  section[data-when="empty"],
+.modal.gate[data-view="denied"] section[data-when="denied"] { display: block; }
+.modal.gate.busy { opacity: .7; pointer-events: none; }
+.gate-lead { font-size: 15px; font-weight: 700; margin: 0 0 12px; }
+.gate-google { display: inline-flex; align-items: center; gap: 10px; width: 100%; justify-content: center; }
+.gate-foot { flex-wrap: wrap; }
+.gate-who { margin-right: auto; font-size: 12px; color: var(--muted); }
+#gate-status { margin-top: 12px; }

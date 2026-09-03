@@ -21,7 +21,7 @@ body::before {
 /* ---------- Main split ---------- */
 #main { flex: 1; display: flex; overflow: hidden; position: relative; }
 #loading {
-  position: absolute; inset: 0; background: var(--panel); z-index: 40;
+  position: absolute; inset: 0; background: var(--panel); z-index: var(--z-veil);
   display: none; align-items: center; justify-content: center;
   color: var(--muted); font-size: 14px; letter-spacing: .02em;
 }

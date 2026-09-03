@@ -12,6 +12,18 @@
   --ctrl-h: 34px;   /* shared height for all toolbar buttons & fields */
   --bar-h: 26px;
 
+  /* z-layer scale. ONE place, so a new surface can't guess wrong.
+     The invite dialog rendering BEHIND the workspace panel was exactly that:
+     three files each invented a number, .overlay claimed 100 and .ws-panel
+     claimed 151. Anything full-viewport belongs on this scale.
+     (.wp-menu's z-index: 5 is deliberately NOT here — it is a local stacking
+     context inside the panel, not a page layer.) */
+  --z-veil:        40;    /* #loading, inside #main */
+  --z-panel-scrim: 150;
+  --z-panel:       151;
+  --z-modal:       300;   /* every .overlay — MUST beat the panel */
+  --z-toast:       400;   /* beats everything; it reports on them */
+
   /* radius scale */
   --radius-sm: 8px;
   --radius-md: 12px;
