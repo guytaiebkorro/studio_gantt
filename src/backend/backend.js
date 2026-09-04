@@ -4,9 +4,18 @@
 // To use a different backend, implement the StorageBackend interface below in
 // a new file and change the one line marked "← swap this".
 //
-// A backend is PURE TRANSPORT. It loads and saves board documents and the
-// workspace record. It knows nothing about merging, autosave debouncing, or
-// polling — those live in src/sync.js and apply to every backend equally.
+// A backend is PURE TRANSPORT. It loads, saves and watches board documents and
+// the workspace record. It knows nothing about autosave debouncing, queueing
+// remote changes around the UI, or what the merge rule IS — those live in
+// src/sync.js and apply to every backend equally.
+//
+// One qualification on "pure transport", because saveBoard's signature makes it
+// look violated: the merge now runs inside the write. It has to, or the
+// read-merge-write is a TOCTOU that loses one of two concurrent editors' work.
+// So sync.js passes its merge in as `reconcile` and the backend calls back into
+// it — the POLICY still lives above, only its execution moved down. A backend
+// that has no transactions can ignore the callback and merge before writing, at
+// the cost of that race.
 //
 // A workspace is a server-side object identified by `wsId`. It is NOT a
 // credential: identity lives in Firebase Auth and permission lives in
@@ -17,7 +26,13 @@
 // @typedef {Object} StorageBackend
 // @property {string|null} wsId                                the active workspace's id
 // @property {(boardId) => Promise<{data, updatedAt} | null>}  loadBoard    null when missing/empty
-// @property {(boardId, data) => Promise<{updatedAt}>}         saveBoard
+// @property {(boardId, data, reconcile) => Promise<{updatedAt, state}>} saveBoard
+//           `reconcile(remoteData, remoteUpdatedAt) -> mergedState` runs inside the
+//           write, may be called MORE THAN ONCE, and must be pure. `state` in the
+//           result is what actually landed — not necessarily the `data` passed in.
+// @property {(boardId, onChange, onError) => () => void}      watchBoard
+//           live updates; returns unsubscribe. onChange(board, meta) where `board`
+//           is loadBoard's contract and meta is { fromCache, hasPendingWrites }.
 // @property {(name, data) => Promise<{id}>}                   createBoardData
 // @property {(boardId, name) => Promise<void>}                renameBoard  keeps the doc's own name in step
 // @property {(boardId) => Promise<void>}                      deleteBoardData  always rejects; see firestore.js

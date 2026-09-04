@@ -53,9 +53,20 @@ export const S = {
   registry: [],                // [{ id, name }] boards in the active workspace, from the workspace doc
   workspaceName: DEFAULT_WORKSPACE_NAME, // authoritative copy lives on the workspace document
   syncState: "idle",           // last value passed to setSync — shown in the workspace button's tooltip
-  loadedAt: 0,                 // updatedAt of the remote version our state descends from
-  baseState: null,             // common ancestor for 3-way merge
-  pollTimer: null,
+  loadedAt: 0,                 // updatedAt of the remote version our state descends from. Doubles as
+                               // the self-echo filter for the live listener — see isNewer() in sync.js.
+  baseState: null,             // common ancestor for 3-way merge. MUST be the last REMOTE version we
+                               // reconciled against, never the merge result; see adoptRemote().
+
+  // --- live sync (replaces pollTimer) ---
+  unwatchBoard: null,          // onSnapshot unsubscribe for the open board, or null when not watching
+  pendingRemote: null,         // newest remote version awaiting a safe moment to apply (see
+                               // applyPendingRemote): snapshots queue rather than drop, because a
+                               // listener has no "next tick" to catch what was skipped mid-drag
+  applyFrame: 0,               // requestAnimationFrame id coalescing a burst of remote changes
+  offline: false,              // a write failed on a network error and is waiting for reconnect.
+                               // Set ONLY by handleWriteError, cleared by noteConnectivity.
+
   suppressAutosave: false,
   cloudReady: false,           // true only after a successful load/create — gates autosave
   savePromise: null,

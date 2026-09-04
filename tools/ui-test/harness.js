@@ -56,6 +56,12 @@ export const MEMBERS = [
 // reaching for internals.
 export const calls = [];
 
+// The live listener's control surface, populated by stubBackend's watchBoard.
+// `emit` pushes a snapshot into sync.js exactly as Firestore would; `active`
+// tracks whether the unsubscribe has been called, which is how the teardown
+// tests assert that stopWatching() really detached.
+export const watch = { boardId: null, emit: null, fail: null, active: false };
+
 function stubBackend() {
   backend.getRegistry = async () => ({
     name: (WORKSPACES.find((w) => w.wsId === backend.wsId) || {}).name || "",
@@ -69,7 +75,24 @@ function stubBackend() {
     data: { version: 1, settings: { viewMode: "week" }, groups: [], tasks: [] },
     updatedAt: 1
   });
-  backend.saveBoard = async () => ({ updatedAt: 2 });
+  // Mirrors the real adapter's contract: the merge runs INSIDE the write, so the
+  // stub calls `reconcile` too and returns what actually landed. Tests that want
+  // to exercise a save-time conflict replace this with a version whose
+  // reconcile() argument is a non-null remote (see cases/sync.js).
+  backend.saveBoard = async (id, data, reconcile) => {
+    calls.push(["saveBoard", id]);
+    return { updatedAt: 2, state: data };
+  };
+  // Live listener. The stub hands the callbacks straight back through `watch` so
+  // a test can push a snapshot synchronously instead of waiting on a network:
+  //   watch.emit({ data, updatedAt }, { fromCache: false, hasPendingWrites: false })
+  backend.watchBoard = (boardId, onChange, onError) => {
+    watch.boardId = boardId;
+    watch.emit = (board, meta) => onChange(board, meta || { fromCache: false, hasPendingWrites: false });
+    watch.fail = (err) => onError && onError(err);
+    watch.active = true;
+    return () => { watch.active = false; watch.emit = null; watch.fail = null; };
+  };
   backend.createBoardData = async (name) => { calls.push(["createBoardData", name]); return { id: "bnew" }; };
   backend.renameBoard = async (id, name) => { calls.push(["renameBoard", id, name]); };
   backend.putBoards = async (b) => { calls.push(["putBoards", b.map((x) => x.name).join(",")]); };

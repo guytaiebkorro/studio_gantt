@@ -185,17 +185,30 @@ service cloud.firestore {
           // provenance is immutable
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.createdBy == resource.data.createdBy
-          // PHASE 9 — optimistic concurrency. Poll-before-write in sync.js is a
-          // read-then-write TOCTOU: two clients can both read, both merge, and
-          // both write, and the second silently overwrites the first's merge.
-          // This line makes the loser's write fail.
+          // Optimistic concurrency. NOW LIVE — the client-side prerequisite the
+          // old note here demanded has shipped.
           //
-          // Uncomment ONLY in the same commit as the sync.js conflict retry.
-          // On its own it turns every concurrent save into a permanent
-          // "Save failed" while users keep editing on top of unsaved state.
-          // Note also that a lost race and a genuine permission error both
-          // return PERMISSION_DENIED and must be told apart by re-reading.
-          // && request.resource.data.rev == resource.data.rev + 1
+          // What it protects against: sync.js used to read the board, merge, then
+          // write, which is a read-then-write TOCTOU. Two clients could both read
+          // version N, both merge, and both write, and the second silently
+          // overwrote the first's merge with nothing surfaced to either user.
+          //
+          // The client half of the fix is that saveBoard() now does its read and
+          // merge INSIDE a runTransaction (src/backend/firestore.js), which
+          // re-runs and re-merges when the document moves underneath it. So this
+          // line almost never fires against our own client — its job is the
+          // writer a transaction cannot see, which in practice means a stale tab
+          // running an older build.
+          //
+          // TWO THINGS TO KNOW BEFORE EDITING EITHER SIDE:
+          //   1. A lost race and a revoked role both return PERMISSION_DENIED and
+          //      cannot be told apart without re-reading the member document.
+          //      sync.js retries SAVE_RETRY_MAX times, then believes the denial
+          //      and re-reads the role. Removing that retry brings back the
+          //      "permanent Save failed" this note used to warn about.
+          //   2. This applies to EVERY board update, not just content saves —
+          //      renameBoard() is a transaction for exactly this reason.
+          && request.resource.data.rev == resource.data.rev + 1
           ;
 
         // The app has no delete-board action by design (see the comment at
