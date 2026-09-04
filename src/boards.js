@@ -35,7 +35,7 @@ import {
 } from "./memberships.js";
 import {
   loadFromCloud, saveToCloud, refreshNow, setSync, setCloudStatus,
-  cloudConnected, boardOpen, startPolling
+  cloudConnected, boardOpen, stopWatching
 } from "./sync.js";
 
 let _lastError = "";
@@ -99,7 +99,7 @@ export async function openWorkspace(wsId, opts) {
     // one, which is why the workspace name appeared to update only on click.
     S.gate = "open";
     updateCloudUI();
-    startPolling();
+    // The live listener is attached by loadFromCloud(), not here.
     requestAnimationFrame(() => {
       chartPane.scrollLeft = Math.max(0, dateToX(today()) - chartPane.clientWidth / 2);
     });
@@ -266,7 +266,9 @@ export async function renameWorkspace(raw) {
 
 function stopSync() {
   clearTimeout(S.autosaveTimer); S.autosaveTimer = null; S.firstDirtyAt = 0;
-  if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
+  // Also drops any queued snapshot, which the next pointerup would otherwise
+  // apply to whatever workspace we have switched to.
+  stopWatching();
 }
 
 // Stop syncing and hand back the workspace we're standing on.

@@ -31,19 +31,17 @@
 // exactly onto the two permissions.
 // ---------------------------------------------------------------------------
 import {
-  db, doc, collection, getDoc, setDoc, updateDoc, serverTimestamp
+  db, doc, collection, getDoc, setDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp
 } from "../firebase/app.js";
 import { auth } from "../firebase/app.js";
 
-// Mirrors the cap in firestore.rules. Refuse locally with a message that says
-// what to do, rather than letting the server reject the write and leaving
-// sync.js to toast an opaque error forever while edits pile up unsaved.
+// Mirrors the cap in firestore.rules.
 const MAX_BOARD_BYTES = 900000;
 
-// A write that never settles is worse than one that fails: Firestore does not
-// reject when offline, it queues indefinitely, and sync.js coalesces on an
-// in-flight save promise. Without a deadline one offline blip wedges autosave
-// permanently.
+// A plain setDoc/updateDoc does not reject when offline — it queues
+// indefinitely — and sync.js coalesces on an in-flight save promise, so without
+// a deadline one offline blip wedges autosave permanently. saveBoard is a
+// transaction and fails on its own, but the other writers here still need this.
 const WRITE_TIMEOUT_MS = 20000;
 
 function withTimeout(promise, label) {
@@ -61,6 +59,37 @@ function uid() {
   const u = auth.currentUser;
   if (!u) throw Object.assign(new Error("Not signed in"), { code: "unauthenticated" });
   return u.uid;
+}
+
+// Refuse an oversized board locally, with a message that says what to do —
+// the server's rejection would surface as an opaque error while edits pile up.
+function encodeBoard(state) {
+  const json = JSON.stringify(state);
+  const bytes = new TextEncoder().encode(json).length;
+  if (bytes > MAX_BOARD_BYTES) {
+    throw new Error(
+      `This board is too large to save (${Math.round(bytes / 1024)} KB of a ${Math.round(MAX_BOARD_BYTES / 1024)} KB limit). ` +
+      "Split it into two boards."
+    );
+  }
+  return json;
+}
+
+// Shared by loadBoard, watchBoard and saveBoard's transaction, so the three
+// cannot disagree about what a board is. Null when missing or empty.
+function parseBoardSnap(snap, boardId) {
+  if (!snap.exists()) return null;
+  const raw = snap.data();
+  if (!raw || typeof raw.data !== "string" || !raw.data) return null;
+  let data;
+  try {
+    data = JSON.parse(raw.data);
+  } catch (err) {
+    // Corrupt payload. Returning null would look like an empty board and the
+    // next autosave would happily overwrite it — so fail loudly instead.
+    throw new Error("This board's data is corrupt and cannot be read (id " + boardId + ")");
+  }
+  return { data, updatedAt: raw.updatedAt || 0, rev: typeof raw.rev === "number" ? raw.rev : 0 };
 }
 
 export class FirestoreBackend {
@@ -85,45 +114,83 @@ export class FirestoreBackend {
   // Returns { data, updatedAt } or null when the board is missing/empty, which
   // is the same contract loadFromCloud() already handles.
   async loadBoard(boardId) {
-    const snap = await getDoc(this._board(boardId));
-    if (!snap.exists()) return null;
-    const raw = snap.data();
-    if (!raw || typeof raw.data !== "string" || !raw.data) return null;
-    let data;
-    try {
-      data = JSON.parse(raw.data);
-    } catch (err) {
-      // Corrupt payload. Returning null would look like an empty board and the
-      // next autosave would happily overwrite it — so fail loudly instead.
-      throw new Error("This board's data is corrupt and cannot be read (id " + boardId + ")");
-    }
-    return { data, updatedAt: raw.updatedAt || 0 };
+    return parseBoardSnap(await getDoc(this._board(boardId)), boardId);
   }
 
-  async saveBoard(boardId, data) {
-    const json = JSON.stringify(data);
-    const bytes = new TextEncoder().encode(json).length;
-    if (bytes > MAX_BOARD_BYTES) {
-      throw new Error(
-        `This board is too large to save (${Math.round(bytes / 1024)} KB of a ${Math.round(MAX_BOARD_BYTES / 1024)} KB limit). ` +
-        "Split it into two boards."
-      );
-    }
-    // Client-side ms, deliberately: sync.js compares `remote.updatedAt !== S.loadedAt`,
-    // so keeping the scheme means the merge logic is unchanged by this migration.
-    // firestore.rules bounds it to request.time + 5min so a bad clock can't pin
-    // every other client into "remote is always newer".
-    const updatedAt = Date.now();
-    await withTimeout(
-      updateDoc(this._board(boardId), {
+  // onChange(board, { fromCache, hasPendingWrites }); returns unsubscribe.
+  //
+  // `includeMetadataChanges: true` is REQUIRED. Without it the listener stays
+  // silent when only metadata moves, and the fromCache true→false edge is how
+  // sync.js learns it is back online and retries a save that failed offline.
+  // Dropping it breaks reconnect only — nothing you click will catch it.
+  watchBoard(boardId, onChange, onError) {
+    const ref = this._board(boardId);
+    return onSnapshot(
+      ref,
+      { includeMetadataChanges: true },
+      (snap) => {
+        let board;
+        try {
+          board = parseBoardSnap(snap, boardId);
+        } catch (err) {
+          if (onError) onError(err);
+          return;
+        }
+        onChange(board, {
+          fromCache: snap.metadata.fromCache,
+          hasPendingWrites: snap.metadata.hasPendingWrites
+        });
+      },
+      (err) => { if (onError) onError(err); }
+    );
+  }
+
+  // Save atomically against whatever the server currently holds. Returns the
+  // state that actually landed, which the transaction may have re-merged.
+  //
+  // `reconcile(remoteData, remoteUpdatedAt) -> mergedState` comes from sync.js,
+  // so the conflict policy stays above the backend; only its execution moved
+  // inside the transaction, because a read-merge-write done outside one loses a
+  // concurrent editor's work. THE CALLBACK CAN RUN SEVERAL TIMES — `reconcile`
+  // must be pure, and the caller adopts the result once, after the commit.
+  //
+  // Fails rather than queueing when offline, deliberately: a queued write
+  // commits later carrying a merge against a long-superseded version, wiping out
+  // everything that landed meanwhile. sync.js keeps the edits and retries.
+  async saveBoard(boardId, data, reconcile) {
+    const ref = this._board(boardId);
+    // Pre-flight so an already-oversized board fails without spending a read —
+    // otherwise it spends one per autosave for as long as editing continues.
+    encodeBoard(data);
+    return withTimeout(runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) {
+        throw Object.assign(new Error("That board no longer exists"), { code: "not-found" });
+      }
+      const remote = parseBoardSnap(snap, boardId);
+      const state = (remote && reconcile) ? reconcile(remote.data, remote.updatedAt) : data;
+
+      // From the RAW snapshot, not `remote`: parseBoardSnap returns null for an
+      // empty payload, which says nothing about the rev the document carries.
+      const raw = snap.data() || {};
+      const nextRev = (typeof raw.rev === "number" ? raw.rev : 0) + 1;
+
+      // Re-checked after the merge, which can push a board over the cap.
+      const json = encodeBoard(state);
+
+      // Client ms, deliberately: sync.js compares it against S.loadedAt to spot
+      // news and to recognise its own write. The rules bound it to
+      // request.time + 5min so a bad clock can't pin everyone else behind it.
+      const updatedAt = Date.now();
+      tx.update(ref, {
         data: json,
         updatedAt,
-        updatedAtServer: serverTimestamp(), // rules pin this to request.time
-        updatedBy: uid()
-      }),
-      "Save"
-    );
-    return { updatedAt };
+        updatedAtServer: serverTimestamp(),   // rules pin this to request.time
+        updatedBy: uid(),
+        rev: nextRev                          // rules require exactly +1
+      });
+      return { updatedAt, state };
+    }), "Save");
   }
 
   // Create a board document. The caller is responsible for adding it to the
@@ -148,30 +215,30 @@ export class FirestoreBackend {
     return { id: ref.id };
   }
 
-  // Keep the board document's own name in step with the denormalized index.
-  // Two writes for one rename is the cost of denormalizing the index onto the
-  // workspace document — which is what makes the board dropdown one read
-  // instead of downloading every board's task list.
+  // Keeps the board document's own name in step with the denormalized index.
   //
-  // NOTE: this must refresh updatedAtServer/updatedBy even though only the name
-  // is changing. firestore.rules requires `updatedAtServer == request.time` on
-  // EVERY board update, so a partial write that leaves the old timestamp in
-  // place is rejected. That is deliberate — it guarantees the stamp always
-  // reflects the last write — but it means every board mutation, however small,
-  // has to re-stamp. Caught by the live adapter test.
+  // A TRANSACTION, AND IT HAS TO BE: the rules require `rev == resource.rev + 1`
+  // and `updatedAtServer == request.time` on EVERY board update, a rename
+  // included — so this must read the current rev to increment it, and doing that
+  // outside a transaction is the very race the rule exists to catch.
   //
-  // updatedAt (the client ms sync.js compares) is intentionally NOT bumped: the
-  // board dropdown reads names from the workspace index, not from here, so a
-  // rename is not a content change and shouldn't make peers re-sync the board.
+  // updatedAt is intentionally NOT bumped: peers read board names from the
+  // workspace index, so a rename is not a content change and shouldn't re-sync.
   async renameBoard(boardId, name) {
-    await withTimeout(
-      updateDoc(this._board(boardId), {
+    const ref = this._board(boardId);
+    await withTimeout(runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) {
+        throw Object.assign(new Error("That board no longer exists"), { code: "not-found" });
+      }
+      const raw = snap.data() || {};
+      tx.update(ref, {
         name: String(name || "Board").slice(0, 200),
+        rev: (typeof raw.rev === "number" ? raw.rev : 0) + 1,
         updatedAtServer: serverTimestamp(),
         updatedBy: uid()
-      }),
-      "Rename board"
-    );
+      });
+    }), "Rename board");
   }
 
   // Boards are never deleted. The app has no delete-board action by design (see

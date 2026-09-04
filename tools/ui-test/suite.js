@@ -490,5 +490,9 @@ await import("./cases/invite.js");
 await import("./cases/gate.js");
 await import("./cases/session.js");
 await import("./cases/checkpoints.js");
+// LAST, because it replaces backend.saveBoard with conflict/offline stubs and
+// tears the live listener down at the end. Anything after it would run against
+// a backend that no longer behaves like the shared one in harness.js.
+await import("./cases/sync.js");
 
 rep("__DONE__");

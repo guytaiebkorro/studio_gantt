@@ -185,17 +185,20 @@ service cloud.firestore {
           // provenance is immutable
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.createdBy == resource.data.createdBy
-          // PHASE 9 — optimistic concurrency. Poll-before-write in sync.js is a
-          // read-then-write TOCTOU: two clients can both read, both merge, and
-          // both write, and the second silently overwrites the first's merge.
-          // This line makes the loser's write fail.
+          // Optimistic concurrency, guarding the read-then-write TOCTOU that let
+          // one of two concurrent editors' merges vanish silently. saveBoard()
+          // now reads and merges inside a runTransaction, so this rarely fires
+          // against our own client — its job is the writer a transaction cannot
+          // see, i.e. a stale tab on an older build.
           //
-          // Uncomment ONLY in the same commit as the sync.js conflict retry.
-          // On its own it turns every concurrent save into a permanent
-          // "Save failed" while users keep editing on top of unsaved state.
-          // Note also that a lost race and a genuine permission error both
-          // return PERMISSION_DENIED and must be told apart by re-reading.
-          // && request.resource.data.rev == resource.data.rev + 1
+          // Two things to know before editing either side:
+          //   1. A lost race and a revoked role are both PERMISSION_DENIED and
+          //      indistinguishable without re-reading the member document.
+          //      sync.js retries SAVE_RETRY_MAX times before believing it;
+          //      removing that retry turns every race into a permanent failure.
+          //   2. This applies to EVERY board update, not just content saves —
+          //      which is why renameBoard() is a transaction too.
+          && request.resource.data.rev == resource.data.rev + 1
           ;
 
         // The app has no delete-board action by design (see the comment at

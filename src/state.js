@@ -53,9 +53,16 @@ export const S = {
   registry: [],                // [{ id, name }] boards in the active workspace, from the workspace doc
   workspaceName: DEFAULT_WORKSPACE_NAME, // authoritative copy lives on the workspace document
   syncState: "idle",           // last value passed to setSync — shown in the workspace button's tooltip
-  loadedAt: 0,                 // updatedAt of the remote version our state descends from
-  baseState: null,             // common ancestor for 3-way merge
-  pollTimer: null,
+  loadedAt: 0,                 // updatedAt we descend from; also the listener's self-echo filter
+  baseState: null,             // 3-way merge ancestor. MUST be the last REMOTE version reconciled
+                               // against, never the merge result — see adoptRemote() in sync.js.
+
+  // --- live sync ---
+  unwatchBoard: null,          // onSnapshot unsubscribe, or null when not watching
+  pendingRemote: null,         // newest remote version awaiting a safe moment to apply
+  applyFrame: 0,               // rAF id coalescing a burst of remote changes
+  offline: false,              // set only by handleWriteError, cleared by noteConnectivity
+
   suppressAutosave: false,
   cloudReady: false,           // true only after a successful load/create — gates autosave
   savePromise: null,

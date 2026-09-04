@@ -56,6 +56,11 @@ export const MEMBERS = [
 // reaching for internals.
 export const calls = [];
 
+// The live listener's control surface, populated by stubBackend's watchBoard.
+// `active` goes false when the unsubscribe is called, which is how the teardown
+// tests assert stopWatching() really detached.
+export const watch = { boardId: null, emit: null, fail: null, active: false };
+
 function stubBackend() {
   backend.getRegistry = async () => ({
     name: (WORKSPACES.find((w) => w.wsId === backend.wsId) || {}).name || "",
@@ -69,7 +74,19 @@ function stubBackend() {
     data: { version: 1, settings: { viewMode: "week" }, groups: [], tasks: [] },
     updatedAt: 1
   });
-  backend.saveBoard = async () => ({ updatedAt: 2 });
+  backend.saveBoard = async (id, data, reconcile) => {
+    calls.push(["saveBoard", id]);
+    return { updatedAt: 2, state: data };
+  };
+  // Hands the callbacks back through `watch` so a test can push a snapshot
+  // synchronously: watch.emit({ data, updatedAt }, meta)
+  backend.watchBoard = (boardId, onChange, onError) => {
+    watch.boardId = boardId;
+    watch.emit = (board, meta) => onChange(board, meta || { fromCache: false, hasPendingWrites: false });
+    watch.fail = (err) => onError && onError(err);
+    watch.active = true;
+    return () => { watch.active = false; watch.emit = null; watch.fail = null; };
+  };
   backend.createBoardData = async (name) => { calls.push(["createBoardData", name]); return { id: "bnew" }; };
   backend.renameBoard = async (id, name) => { calls.push(["renameBoard", id, name]); };
   backend.putBoards = async (b) => { calls.push(["putBoards", b.map((x) => x.name).join(",")]); };

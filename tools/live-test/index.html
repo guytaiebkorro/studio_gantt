@@ -78,6 +78,7 @@ async function run(u) {
             start:"2026-09-10",end:"2026-09-14",isMilestone:false,deps:[],color:null}] };
   const saved = await b.saveBoard(boardId, board);
   ck("saveBoard returns updatedAt", typeof saved.updatedAt, "number");
+  ck("saveBoard returns the state that landed", !!saved.state, true);
   const back = await b.loadBoard(boardId);
   ck("round trip: task name", back.data.tasks[0].name, "Adapter round trip");
   ck("round trip: viewMode", back.data.settings.viewMode, "day");
@@ -87,6 +88,42 @@ async function run(u) {
   // null round-trips (Firestore rejects undefined; JSON keeps null)
   ck("null parentId survives", back.data.tasks[0].parentId, null);
   ck("null colour survives", back.data.tasks[0].color, null);
+
+  // --- rev / optimistic concurrency ----------------------------------------
+  const revOf = async (id) =>
+    (await fb.getDoc(fb.doc(fb.db,"workspaces",WS,"boards",id))).get("rev");
+  const rev1 = await revOf(boardId);
+  ck("rev is an integer after a save", Number.isInteger(rev1), true);
+  await b.saveBoard(boardId, board);
+  ck("rev increments by exactly 1 per save", await revOf(boardId) - rev1, 1);
+
+  // A rename is a board UPDATE, so the rule applies to it too. This is what
+  // catches renameBoard() being "simplified" back to a plain updateDoc.
+  const revBeforeRename = await revOf(boardId);
+  await b.renameBoard(boardId, reg.boards[0].name);
+  ck("renameBoard bumps rev too", await revOf(boardId) - revBeforeRename, 1);
+
+  // The write a stale tab would make — the one that used to silently overwrite
+  // a teammate's merge.
+  await denied("a stale rev is rejected", () =>
+    fb.updateDoc(fb.doc(fb.db,"workspaces",WS,"boards",boardId), {
+      data: JSON.stringify(board),
+      updatedAt: Date.now(),
+      updatedAtServer: fb.serverTimestamp(),
+      updatedBy: u.uid,
+      rev: 0                       // deliberately stale
+    }));
+
+  // saveBoard hands `reconcile` the server's current copy, not what we last read.
+  let sawRemote = null;
+  await b.saveBoard(boardId, board, (remoteData) => {
+    sawRemote = remoteData;
+    return { ...board, settings: { viewMode: "month" } };
+  });
+  ck("reconcile was given the server's current board",
+     !!sawRemote && sawRemote.tasks[0].name === "Adapter round trip", true);
+  ck("reconcile's result is what got written",
+     (await b.loadBoard(boardId)).data.settings.viewMode, "month");
 
   // --- create board + index update -----------------------------------------
   const { id: newId } = await b.createBoardData("Second Board", { version:1, settings:{viewMode:"week"}, groups:[], tasks:[] });

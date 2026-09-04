@@ -34,3 +34,14 @@ export function friendlyError(err) {
 export function isPermissionDenied(err) {
   return !!err && err.code === "permission-denied";
 }
+
+// The server wasn't reachable, as opposed to saying no. Distinct from
+// isPermissionDenied because the two want opposite handling: a refusal means
+// stop trying, an outage means keep the edits and retry on reconnect.
+//
+// withTimeout() in src/backend/firestore.js stamps `deadline-exceeded`
+// deliberately, so its timeouts and Firestore's arrive as one case.
+export function isOffline(err) {
+  const code = (err && err.code) || "";
+  return code === "unavailable" || code === "deadline-exceeded";
+}
