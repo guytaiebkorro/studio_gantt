@@ -185,29 +185,19 @@ service cloud.firestore {
           // provenance is immutable
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.createdBy == resource.data.createdBy
-          // Optimistic concurrency. NOW LIVE — the client-side prerequisite the
-          // old note here demanded has shipped.
+          // Optimistic concurrency, guarding the read-then-write TOCTOU that let
+          // one of two concurrent editors' merges vanish silently. saveBoard()
+          // now reads and merges inside a runTransaction, so this rarely fires
+          // against our own client — its job is the writer a transaction cannot
+          // see, i.e. a stale tab on an older build.
           //
-          // What it protects against: sync.js used to read the board, merge, then
-          // write, which is a read-then-write TOCTOU. Two clients could both read
-          // version N, both merge, and both write, and the second silently
-          // overwrote the first's merge with nothing surfaced to either user.
-          //
-          // The client half of the fix is that saveBoard() now does its read and
-          // merge INSIDE a runTransaction (src/backend/firestore.js), which
-          // re-runs and re-merges when the document moves underneath it. So this
-          // line almost never fires against our own client — its job is the
-          // writer a transaction cannot see, which in practice means a stale tab
-          // running an older build.
-          //
-          // TWO THINGS TO KNOW BEFORE EDITING EITHER SIDE:
-          //   1. A lost race and a revoked role both return PERMISSION_DENIED and
-          //      cannot be told apart without re-reading the member document.
-          //      sync.js retries SAVE_RETRY_MAX times, then believes the denial
-          //      and re-reads the role. Removing that retry brings back the
-          //      "permanent Save failed" this note used to warn about.
+          // Two things to know before editing either side:
+          //   1. A lost race and a revoked role are both PERMISSION_DENIED and
+          //      indistinguishable without re-reading the member document.
+          //      sync.js retries SAVE_RETRY_MAX times before believing it;
+          //      removing that retry turns every race into a permanent failure.
           //   2. This applies to EVERY board update, not just content saves —
-          //      renameBoard() is a transaction for exactly this reason.
+          //      which is why renameBoard() is a transaction too.
           && request.resource.data.rev == resource.data.rev + 1
           ;
 

@@ -57,9 +57,8 @@ export const MEMBERS = [
 export const calls = [];
 
 // The live listener's control surface, populated by stubBackend's watchBoard.
-// `emit` pushes a snapshot into sync.js exactly as Firestore would; `active`
-// tracks whether the unsubscribe has been called, which is how the teardown
-// tests assert that stopWatching() really detached.
+// `active` goes false when the unsubscribe is called, which is how the teardown
+// tests assert stopWatching() really detached.
 export const watch = { boardId: null, emit: null, fail: null, active: false };
 
 function stubBackend() {
@@ -75,17 +74,12 @@ function stubBackend() {
     data: { version: 1, settings: { viewMode: "week" }, groups: [], tasks: [] },
     updatedAt: 1
   });
-  // Mirrors the real adapter's contract: the merge runs INSIDE the write, so the
-  // stub calls `reconcile` too and returns what actually landed. Tests that want
-  // to exercise a save-time conflict replace this with a version whose
-  // reconcile() argument is a non-null remote (see cases/sync.js).
   backend.saveBoard = async (id, data, reconcile) => {
     calls.push(["saveBoard", id]);
     return { updatedAt: 2, state: data };
   };
-  // Live listener. The stub hands the callbacks straight back through `watch` so
-  // a test can push a snapshot synchronously instead of waiting on a network:
-  //   watch.emit({ data, updatedAt }, { fromCache: false, hasPendingWrites: false })
+  // Hands the callbacks back through `watch` so a test can push a snapshot
+  // synchronously: watch.emit({ data, updatedAt }, meta)
   backend.watchBoard = (boardId, onChange, onError) => {
     watch.boardId = boardId;
     watch.emit = (board, meta) => onChange(board, meta || { fromCache: false, hasPendingWrites: false });

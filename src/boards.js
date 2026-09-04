@@ -99,10 +99,7 @@ export async function openWorkspace(wsId, opts) {
     // one, which is why the workspace name appeared to update only on click.
     S.gate = "open";
     updateCloudUI();
-    // No startPolling() here any more. The live listener is attached by
-    // loadFromCloud() instead — that is the one function which establishes
-    // S.loadedAt and S.baseState, so switchBoard() and newBoard() get a
-    // correctly-pointed listener for free rather than each having to ask.
+    // The live listener is attached by loadFromCloud(), not here.
     requestAnimationFrame(() => {
       chartPane.scrollLeft = Math.max(0, dateToX(today()) - chartPane.clientWidth / 2);
     });
@@ -269,10 +266,8 @@ export async function renameWorkspace(raw) {
 
 function stopSync() {
   clearTimeout(S.autosaveTimer); S.autosaveTimer = null; S.firstDirtyAt = 0;
-  // Detach the live listener AND drop any snapshot queued behind a busy UI.
-  // Both matter on the way out: a surviving listener would keep billing reads
-  // and could adopt the old workspace's board into the new one, and a queued
-  // pendingRemote would be applied by the next pointerup after the switch.
+  // Also drops any queued snapshot, which the next pointerup would otherwise
+  // apply to whatever workspace we have switched to.
   stopWatching();
 }
 

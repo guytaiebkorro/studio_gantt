@@ -1,28 +1,6 @@
 // ---------------------------------------------------------------------------
-// Cloud sync orchestration (backend-agnostic).
-//
-// Sits ON TOP OF the storage backend. The backend only loads/saves/watches
-// documents; this module adds the behavior shared by every backend:
-//   - autosave debouncing (idle + max-interval)
-//   - the 3-way merge policy, handed to the backend as a `reconcile` callback
-//     so the merge runs INSIDE the write's transaction
-//   - live remote updates, queued so they never land mid-drag
-//   - manual refresh, refresh-on-activate, retry-on-reconnect
-//   - the ☁ status dot
-//
-// WHAT REPLACED WHAT, since two mechanisms here look like the ones they retired:
-//
-//   poll-before-write → a transaction. saveToCloud() used to read the board,
-//   merge, then write. That is a TOCTOU: two clients could both read version N,
-//   both merge and both write, and the second silently discarded the first's
-//   merge with no error shown to anyone. The read and the merge now happen
-//   inside runTransaction, which re-runs them on contention. merge3 is pure,
-//   so re-running it is free.
-//
-//   5s setInterval polling → onSnapshot. Polling billed one read per tick per
-//   tab whether or not anything had changed, which is why it shipped disabled
-//   (POLL_ENABLED = false) and nobody ever saw a teammate's edit without
-//   pressing 🔄. A listener bills one read per change actually delivered.
+// Cloud sync orchestration (backend-agnostic). Autosave debouncing, the merge
+// policy, the live listener, and the ☁ status dot.
 // ---------------------------------------------------------------------------
 import { SAVE_IDLE_MS, SAVE_MAX_MS, SAVE_RETRY_MAX } from "./config.js";
 import { $, chartPane, toast } from "./dom.js";
@@ -63,12 +41,6 @@ export function setCloudStatus(msg, kind) {
   el.hidden = !show;
 }
 export function setSync(s) {
-  // dot color: grey idle, amber pending/syncing, green ok, red error,
-  // slate "offline" — a state the dot could not express before. It is NOT an
-  // error (nothing is lost and no action is needed) and it is NOT pending
-  // (nothing will happen until the connection returns), so reusing either one
-  // was misleading in a way that mattered: amber says "wait", red says "act",
-  // and the honest answer is "your work is here, we'll send it when we can".
   const c = {
     idle: "#cbd2dd", pending: "#f59e0b", syncing: "#f59e0b",
     ok: "#10b981", err: "#ef4444", offline: "#64748b"
@@ -89,18 +61,13 @@ function preserveAndRender() {
 export async function loadFromCloud() {
   if (!cloudConnected()) { toast("No workspace is open"); return; }
   if (!S.ws.boardId) { toast("No board selected"); return; }
-  // This function owns the listener's whole lifecycle. Detaching up front — not
-  // just re-attaching on success — means a load that FAILS leaves nothing
-  // attached, rather than a listener still pointed at the previous board that
-  // goes on billing reads for a board the user has navigated away from.
+  // Detach up front, so a load that FAILS leaves no listener on the old board.
   stopWatching();
   setSync("syncing"); setCloudStatus("Loading " + boardName() + "…", "");
   try {
     const u = await backend.loadBoard(S.ws.boardId);
     if (!u) { // empty board — nothing to load yet
       S.baseState = clone(S.state); S.loadedAt = 0; S.cloudReady = true;
-      // Still watch it: "empty" means nobody has saved yet, and a teammate
-      // populating it is exactly the change we want to see arrive.
       startWatching();
       setSync("ok"); setCloudStatus("Empty board — edits will populate it.", ""); return;
     }
@@ -111,11 +78,8 @@ export async function loadFromCloud() {
     clearDirty(); updateViewButtons(); render();
     S.suppressAutosave = false;
     S.cloudReady = true;
-    // Attach the live listener HERE rather than at each call site. This is the
-    // one function that establishes S.loadedAt and S.baseState, so openWorkspace,
-    // switchBoard and newBoard all get a listener pointed at the right board
-    // without having to remember to ask. startWatching() detaches first, so
-    // switching boards cannot leave the old board's listener running.
+    // The single attach point: this is the one function that establishes
+    // S.loadedAt and S.baseState, so every caller gets a listener for free.
     startWatching();
     setSync("ok"); setCloudStatus("Loaded " + boardName(), "ok");
     toast("Loaded from cloud ✓");
@@ -126,39 +90,20 @@ export async function loadFromCloud() {
   }
 }
 
-// The conflict policy, handed to the backend so it can run INSIDE the write's
-// transaction. Pure apart from reading S.baseState: given whatever the server
-// holds right now, return the document we should write.
+// Runs INSIDE saveBoard's transaction, so it must stay pure and re-runnable —
+// the transaction re-invokes it on contention. Adopting the result into S.state
+// is saveToCloud's job, once, after the commit.
 //
-// It must stay re-runnable. runTransaction re-invokes its callback — and
-// therefore this — whenever the document changed under it, so anything that
-// mutated S.state or touched the DOM here would run an unpredictable number of
-// times. Adopting the merge result into S.state is the CALLER's job, once, after
-// the transaction has actually committed.
+// Returns S.state BY IDENTITY when the server hasn't moved. That is load-bearing,
+// not a micro-optimisation: saveToCloud re-renders whenever the result differs
+// from what it sent, and merge3 always allocates, so without this every autosave
+// cost a full chart rebuild.
 function reconcile(remoteData, remoteUpdatedAt) {
-  // Nothing has landed on the server since we loaded, so our state already
-  // descends from exactly this version and there is nothing to merge.
-  //
-  // Returning S.state BY IDENTITY is the point, not an optimisation of the
-  // merge: saveToCloud only re-renders when what came back differs from what it
-  // sent, and merge3 always allocates. Without this, every autosave produced a
-  // structurally-identical-but-new object and cost a full chart rebuild — on the
-  // 5s idle timer, for as long as someone kept typing. This is the same
-  // `remote.updatedAt !== S.loadedAt` gate the old poll-before-write had, moved
-  // to where the merge now happens.
   if (remoteUpdatedAt && remoteUpdatedAt === S.loadedAt) return S.state;
-  const rdata = normalize(remoteData);   // normalize once; see adoptRemote() for why at all
+  const rdata = normalize(remoteData);
   return normalize(merge3(S.baseState || rdata, S.state, rdata));
 }
 
-// Save the whole board, merging in anything a teammate changed. Used by autosave
-// (debounced) and by "Save now" / ⌘S.
-//
-// The read-merge-write is one transaction now (see the header). saveBoard() calls
-// reconcile() above from inside it, so there is no longer a window in which two
-// clients can both read, both merge, and have the second silently overwrite the
-// first. `firestore.rules` additionally requires rev == resource.rev + 1, which
-// catches a writer the transaction cannot see — a stale tab on an older build.
 export async function saveToCloud() {
   if (!boardOpen()) return;
   if (S.savePromise) { S.saveAgain = true; return S.savePromise; } // coalesce overlapping saves
@@ -166,8 +111,7 @@ export async function saveToCloud() {
   S.savePromise = (async () => {
     for (let attempt = 0; ; attempt++) {
       try {
-        // `state` is what actually landed — the transaction may have re-run and
-        // merged, so it is NOT necessarily the S.state we passed in.
+        // `state` is what landed; the transaction may have re-run and merged.
         const { updatedAt, state } = await backend.saveBoard(S.ws.boardId, S.state, reconcile);
         if (state !== S.state) {
           S.suppressAutosave = true;
@@ -175,19 +119,16 @@ export async function saveToCloud() {
           preserveAndRender();
           S.suppressAutosave = false;
         }
-        S.loadedAt = updatedAt;      // also the self-echo filter — see isNewer()
+        S.loadedAt = updatedAt;      // doubles as the self-echo filter — see isNewer()
         S.baseState = clone(S.state);
         S.offline = false;
         clearDirty();
         setSync("ok"); setCloudStatus("Saved " + boardName(), "ok");
         return;
       } catch (err) {
-        // A lost rev race and a genuine role change BOTH surface as
-        // permission-denied and cannot be told apart without re-reading. So
-        // retry a bounded number of times first: a lost race succeeds on the
-        // next attempt against the fresh rev, while a real role change fails
-        // every time and falls through to handleWriteError, which re-reads the
-        // role. Unbounded retry would spin forever on the role change.
+        // A lost rev race and a revoked role are the same error code and can't
+        // be told apart without re-reading, so retry before believing it: the
+        // race succeeds against the fresh rev, a real denial fails every time.
         if (isPermissionDenied(err) && attempt < SAVE_RETRY_MAX) continue;
         handleWriteError(err);
         return;
@@ -197,13 +138,8 @@ export async function saveToCloud() {
   try {
     await S.savePromise;
   } finally {
-    // MUST be cleared in a finally: the coalescing guard above returns early
-    // whenever S.savePromise is set, so leaving it set on a failure path wedges
-    // autosave permanently and leaves a beforeunload warning the user can never
-    // clear. That used to be reachable via Firestore's offline behaviour (a
-    // plain updateDoc never settles offline); a transaction fails fast instead,
-    // but the finally stays because the invariant is what matters, not the
-    // particular way it was once violated.
+    // MUST be a finally: the coalescing guard returns early whenever this is
+    // set, so leaving it set on a failure path wedges autosave permanently.
     S.savePromise = null;
   }
   if (S.saveAgain) { S.saveAgain = false; return saveToCloud(); } // flush edits made mid-save
@@ -217,8 +153,7 @@ function handleWriteError(err) {
   const msg = friendlyError(err);
   setCloudStatus(msg, "err");
   if (isPermissionDenied(err)) {
-    // Role change. Stop autosaving — every further attempt can only be rejected
-    // — and re-read the role so the UI stops offering edits it can't make.
+    // Role change: stop autosaving, since every further attempt can only fail.
     setSync("err");
     clearTimeout(S.autosaveTimer); S.autosaveTimer = null; S.firstDirtyAt = 0;
     toast("Your access to this workspace changed — your edits are still here, but can't be saved");
@@ -226,15 +161,9 @@ function handleWriteError(err) {
     return;
   }
   if (isOffline(err)) {
-    // THE ONLY place S.offline is set. A transaction needs a server round trip,
-    // so unlike a plain updateDoc it fails instead of queueing — which is the
-    // point: a queued write commits later with a board that was merged against
-    // a version now minutes stale, overwriting whatever landed in between.
-    //
-    // Keep the edits, keep S.dirty, say so plainly, and let noteConnectivity()
-    // retry the moment the listener sees the server answer again. The autosave
-    // timer is deliberately NOT cancelled here: further edits should keep
-    // re-arming it, so a save is already due whenever the connection returns.
+    // The only place S.offline is set; noteConnectivity clears it and retries.
+    // Deliberately does NOT cancel the autosave timer — further edits should
+    // keep re-arming it so a save is already due when the connection returns.
     S.offline = true;
     setSync("offline");
     toast("You're offline — your changes are saved here and will sync when you reconnect");
@@ -279,10 +208,7 @@ export function flushSave() {
 // --- live team sync ---------------------------------------------------------
 function uiBusy() { return S.dragging || !!document.querySelector(".overlay.show"); }
 
-// Attach the live listener to the currently open board. Called from
-// loadFromCloud(), which is the one place that establishes S.loadedAt and
-// S.baseState — so openWorkspace, switchBoard and newBoard all get a listener
-// without each having to remember to ask for one. Re-entrant: it detaches first.
+// Re-entrant: detaches any existing listener first.
 export function startWatching() {
   stopWatching();
   if (!boardOpen()) return;
@@ -290,25 +216,17 @@ export function startWatching() {
   S.unwatchBoard = backend.watchBoard(
     boardId,
     (remote, meta) => {
-      // Guard against a snapshot for a board we have since left. unsubscribe()
-      // makes this very unlikely, but it is not documented to be synchronous,
-      // and adopting another board's content into this one would be both
-      // catastrophic and completely silent.
+      // unsubscribe() is not documented to be synchronous, and adopting another
+      // board's content into this one would be silent and catastrophic.
       if (boardId !== S.ws.boardId) return;
       noteConnectivity(meta);
-      // Our own write, not yet acknowledged. isNewer() would drop it a moment
-      // later anyway (saveToCloud stamps S.loadedAt with the same client ms it
-      // wrote), but skipping it here avoids a pointless rAF and re-render.
-      if (meta.hasPendingWrites) return;
+      if (meta.hasPendingWrites) return;   // our own unacked write
       if (!isNewer(remote)) return;
       S.pendingRemote = remote;   // latest wins — supersede any earlier one
       applyPendingRemote();
     },
     (err) => {
-      // A listener error is TERMINAL — Firestore does not re-establish it. The
-      // overwhelmingly likely cause is permission-denied because this user's
-      // role changed while the tab was open, which is the same situation
-      // handleWriteError() already knows how to explain.
+      // Terminal: Firestore does not re-establish a failed listener.
       setSync("err");
       setCloudStatus("Live sync stopped: " + friendlyError(err), "err");
       stopWatching();
@@ -323,24 +241,16 @@ export function stopWatching() {
   S.pendingRemote = null;
 }
 
-// Remote snapshots QUEUE — they do not drop.
+// Snapshots QUEUE rather than drop: a listener has no next tick, so a change
+// skipped because the UI was busy would never be seen again. Applying one under
+// a bar the user is holding would yank it off the cursor, hence the wait.
 //
-// The old pollTick just returned early while the UI was busy, which was safe
-// only because another tick was 5s behind it. A listener has no next tick: the
-// change has already been delivered, and dropping it means never seeing it. So
-// the newest pending snapshot is held and applied at the next safe moment.
-//
-// "Safe" is meant literally. Swapping S.state under a bar the user is holding
-// yanks it out from under the cursor, and a re-render with the task editor open
-// rebuilds the DOM under a form somebody is typing into.
+// The frame coalesces a burst of teammate saves into one chart rebuild, and gets
+// the merge out of the snapshot callback, where a throw has nowhere to go.
 export function applyPendingRemote() {
   if (!S.pendingRemote || !boardOpen() || !S.cloudReady) return false;
   if (uiBusy() || S.savePromise) return false;
   if (S.applyFrame) return false;   // already queued for this frame
-  // Coalesce a burst of teammate saves into ONE re-render: adoptRemote() calls
-  // preserveAndRender(), a full chart rebuild, and three changes landing in the
-  // same frame should not cost three of them. This also gets the merge out of
-  // the Firestore snapshot callback, where a throw has nowhere to go.
   S.applyFrame = requestAnimationFrame(() => {
     S.applyFrame = 0;
     const remote = S.pendingRemote;
@@ -357,37 +267,24 @@ export function applyPendingRemote() {
   return true;
 }
 
-// Re-check whenever an interaction could have ENDED a busy period.
+// Release the queue when an interaction ends. Window-level rather than a call
+// from each UI module because sync.js -> render/index.js -> render/chart.js ->
+// ui/interactions.js already exists, so importing sync.js back into
+// interactions.js / editor.js / groupEditor.js would close a module-evaluation
+// cycle — the same hazard reassertRole() dodges with a lazy import.
 //
-// Deliberately window-level rather than a call from each UI module, for one
-// hard reason and one soft one. Hard: sync.js -> render/index.js ->
-// render/chart.js -> ui/interactions.js already exists, so importing sync.js
-// back into interactions.js / editor.js / groupEditor.js would close a cycle at
-// module-evaluation time — the same hazard reassertRole() above uses a lazy
-// import to dodge. Soft: an explicit call site is one someone can forget when
-// they add a fourth kind of overlay, and the failure mode is a teammate's edit
-// that never appears.
-//
-// setTimeout(0) rather than handling the event directly: it runs after every
-// synchronous handler for that event, so S.dragging is already false and the
-// overlay is already closed no matter what order the listeners were bound in.
-// pointerup covers drag/resize release, click covers a modal dismissed by its
-// button, keyup covers Escape. applyPendingRemote() is a cheap no-op when there
-// is nothing queued, which is almost always.
+// setTimeout(0) so this runs after every synchronous handler for the event,
+// whatever order the listeners were bound in: S.dragging is already false and
+// the overlay already closed. pointerup covers a drag, click a modal button,
+// keyup Escape.
 const recheckPending = () => setTimeout(applyPendingRemote, 0);
 window.addEventListener("pointerup", recheckPending);
 window.addEventListener("click", recheckPending);
 window.addEventListener("keyup", recheckPending);
 
-// Track whether the server is actually answering, so a save that failed on a
-// network error can be retried the moment it comes back.
-//
-// NOTE what this does NOT do: flip a user-visible "offline" state off
-// meta.fromCache. The FIRST snapshot of a listener is served from the persistent
-// cache with fromCache=true even when perfectly online, so treating that edge as
-// a disconnection would show a spurious offline blip on every board open.
-// S.offline is set in exactly one place — handleWriteError(), when a write
-// actually fails with a network code — and cleared here.
+// Only ever clears S.offline; never sets it. A listener's FIRST snapshot comes
+// from the persistent cache with fromCache=true even when perfectly online, so
+// treating that as a disconnection would blip "offline" on every board open.
 function noteConnectivity(meta) {
   if (meta.fromCache || !S.offline) return;
   retryAfterReconnect();
@@ -396,90 +293,61 @@ function noteConnectivity(meta) {
 function retryAfterReconnect() {
   if (!S.offline) return;
   S.offline = false;
-  if (S.dirty && canEdit() && boardOpen()) flushSave();   // the server is back; push what's waiting
+  if (S.dirty && canEdit() && boardOpen()) flushSave();
   else setSync("ok");
 }
 
-// A belt to go with noteConnectivity's braces.
-//
-// The listener is the primary reconnect signal and the better one — it fires
-// when Firestore itself has re-established the stream, which is what actually
-// determines whether a transaction can commit. But it only fires while a
-// listener is attached, and a listener can have stopped (its error path is
-// terminal) or never been attached at all if the board load was what failed. In
-// either of those states an offline save would sit unsent until the user
-// happened to edit something else.
-//
-// navigator.onLine is famously optimistic — it says "an interface is up", not
-// "the server is reachable" — which is fine here: the worst case is one save
-// attempt that fails and puts us straight back into the offline state.
+// A belt for noteConnectivity's braces: that only fires while a listener is
+// attached, and one can have stopped or never attached. navigator.onLine is
+// optimistic, which is fine — the worst case is one failed save attempt.
 window.addEventListener("online", retryAfterReconnect);
 
 // Returns true if something new was pulled in.
 export async function syncFromRemote() {
   const remote = await backend.loadBoard(S.ws.boardId);
-  if (!isNewer(remote)) return false; // nothing new
+  if (!isNewer(remote)) return false;
   return adoptRemote(remote);
 }
 
-// The one place that decides whether a remote version is worth adopting. Also
-// the self-echo filter: saveBoard() stamps the same client ms it wrote into
-// S.loadedAt (src/backend/firestore.js, src/sync.js flushSaved), so our OWN
-// write comes back with updatedAt === S.loadedAt and is dropped here. Nothing
-// else needs to filter it — resist adding a second check.
+// Also the self-echo filter: saveToCloud stamps S.loadedAt with the same client
+// ms it wrote, so our own write comes back equal and is dropped here. Nothing
+// else needs to filter it.
 function isNewer(remote) {
   return !!(remote && remote.updatedAt && remote.updatedAt > S.loadedAt);
 }
 
-// Fold a remote version into the local one. Shared by the manual/activate pull
-// above and by the live listener, so there is exactly one merge policy.
+// One merge policy, shared by the manual pull and the live listener.
 function adoptRemote(remote) {
-  // Normalize the remote ONCE, up front, and merge against that copy rather
-  // than the raw payload. base, local and remote are then all normalized —
-  // which matters because eq() is JSON.stringify (src/merge.js) and therefore
-  // key-ORDER sensitive. A board written by something that didn't normalize
-  // first (a tools/admin `board:import` of hand-written JSON) would otherwise
-  // read as "every field changed" against a normalized base and lose the merge.
+  // Normalize up front so base, local and remote all are: eq() is
+  // JSON.stringify and therefore key-order sensitive, so an unnormalized remote
+  // (a hand-written board:import) would read as "every field changed".
   const rdata = normalize(remote.data);
   if (S.dirty) {
-    // we have local edits — merge remote in, then let autosave push the result
     const merged = merge3(S.baseState || rdata, S.state, rdata);
     S.suppressAutosave = true; S.state = normalize(merged); preserveAndRender(); S.suppressAutosave = false;
 
-    // THE ANCESTOR IS THE REMOTE WE JUST RECONCILED AGAINST, never the merge
-    // result. This used to be `clone(S.state)`, which put our own UNSAVED edits
-    // into the common ancestor — so on the next pull mergeList() saw
-    // `lc = !eq(base[id], local[id])` → false for every task we had edited but
-    // not yet saved, `rc` → true (the server still holds the old value), took
-    // the `if (rc && !lc) return clone(r[id])` branch, and silently replaced
-    // our edited task with the server's older copy.
-    //
-    // It was survivable while pulls were rare and manual. It is not survivable
-    // with a live listener, which pulls constantly — two remote changes
-    // arriving between autosaves was enough to revert an edit with no error
-    // and no way for the user to know. Covered by tools/ui-test/cases/sync.js.
+    // The ancestor is the REMOTE we reconciled against, never the merge result.
+    // Using the merge result put our own unsaved edits into the ancestor, so the
+    // next pull saw base and local agreeing, concluded only the remote had
+    // changed, and silently replaced our edited task with the server's older
+    // copy. Covered by tools/ui-test/cases/sync.js.
     S.baseState = clone(rdata);
     S.loadedAt = remote.updatedAt;
-    scheduleCloudSave();   // owns setSync("pending"), and knows whether a save is really due
+    scheduleCloudSave();   // owns setSync("pending"), and knows if a save is due
   } else {
-    // clean — just adopt the remote version
     S.suppressAutosave = true; S.state = rdata; preserveAndRender(); S.suppressAutosave = false;
     S.baseState = clone(S.state); S.loadedAt = remote.updatedAt; S.cloudReady = true;
     setSync("ok");
   }
   return true;
 }
-// Refresh when the app becomes active again (tab selected / window refocused).
+
+// The listener already delivered anything that changed while we were away, so
+// this survives for a reason independent of sync: it re-renders for the current
+// wall clock, and a day may have passed in the background, which moves the today
+// marker and every date-derived progress bar.
 //
-// The listener has already delivered anything that changed while we were away,
-// so this is no longer the pull it used to be — but it stays for the reason that
-// was always independent of sync: it RE-RENDERS for the current wall clock, and
-// a day (or more) may have elapsed while the tab sat in the background, which
-// moves the "today" marker and every date-derived progress bar. It also flushes
-// any snapshot that arrived while a modal was open.
-//
-// Switching back fires both `visibilitychange` (→ visible) and `focus`, so
-// coalesce them into one hit.
+// Switching back fires both `visibilitychange` and `focus`, so coalesce them.
 let activateTimer = null;
 export function refreshOnActivate() {
   if (activateTimer) return; // a refresh is already queued from the paired event
@@ -487,11 +355,8 @@ export function refreshOnActivate() {
     activateTimer = null;
     if (uiBusy() || S.savePromise) return; // don't disturb active work / an in-flight save
     if (boardOpen() && S.cloudReady && !S.unwatchBoard) {
-      // No live listener — it errored out and stopped itself (see startWatching).
-      // Fall back to the one-shot read this function used to do unconditionally,
-      // so a dead listener degrades to the old refresh-on-activate behaviour
-      // instead of to nothing at all.
-      try { await syncFromRemote(); } catch (_) { /* transient; 🔄 and the next activate retry */ }
+      // The listener died, so fall back to a one-shot read rather than nothing.
+      try { await syncFromRemote(); } catch (_) { /* 🔄 and the next activate retry */ }
     } else {
       applyPendingRemote(); // flush anything that landed while a modal was open
     }

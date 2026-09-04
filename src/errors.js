@@ -35,14 +35,12 @@ export function isPermissionDenied(err) {
   return !!err && err.code === "permission-denied";
 }
 
-// True when a write failed because the server wasn't reachable, rather than
-// because it said no. Distinct from isPermissionDenied because the two want
-// opposite handling: a refusal means stop trying, an outage means keep the
-// edits and retry on reconnect (src/sync.js handleWriteError / noteConnectivity).
+// The server wasn't reachable, as opposed to saying no. Distinct from
+// isPermissionDenied because the two want opposite handling: a refusal means
+// stop trying, an outage means keep the edits and retry on reconnect.
 //
-// `deadline-exceeded` is in here twice over: Firestore raises it, and so does
-// the withTimeout() wrapper in src/backend/firestore.js, which stamps that same
-// code deliberately so both arrive as one case.
+// withTimeout() in src/backend/firestore.js stamps `deadline-exceeded`
+// deliberately, so its timeouts and Firestore's arrive as one case.
 export function isOffline(err) {
   const code = (err && err.code) || "";
   return code === "unavailable" || code === "deadline-exceeded";

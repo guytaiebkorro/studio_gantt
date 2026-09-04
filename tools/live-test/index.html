@@ -90,9 +90,6 @@ async function run(u) {
   ck("null colour survives", back.data.tasks[0].color, null);
 
   // --- rev / optimistic concurrency ----------------------------------------
-  // The rule (`rev == resource.data.rev + 1`) can only be exercised against a
-  // real server: the emulator would do, but the rules pin sign_in_provider to
-  // google.com, which is the whole reason this file exists.
   const revOf = async (id) =>
     (await fb.getDoc(fb.doc(fb.db,"workspaces",WS,"boards",id))).get("rev");
   const rev1 = await revOf(boardId);
@@ -100,17 +97,14 @@ async function run(u) {
   await b.saveBoard(boardId, board);
   ck("rev increments by exactly 1 per save", await revOf(boardId) - rev1, 1);
 
-  // A rename is a board UPDATE, so the same rule applies to it — which is why
-  // renameBoard() is a transaction. A plain updateDoc leaving rev alone would
-  // be rejected, and this is the assertion that catches it if someone
-  // "simplifies" it back.
+  // A rename is a board UPDATE, so the rule applies to it too. This is what
+  // catches renameBoard() being "simplified" back to a plain updateDoc.
   const revBeforeRename = await revOf(boardId);
   await b.renameBoard(boardId, reg.boards[0].name);
   ck("renameBoard bumps rev too", await revOf(boardId) - revBeforeRename, 1);
 
-  // The guard itself: a hand-built write carrying a stale rev must be REFUSED.
-  // This is the write a stale tab on an older build would make, and the thing
-  // that used to silently overwrite a teammate's merge.
+  // The write a stale tab would make — the one that used to silently overwrite
+  // a teammate's merge.
   await denied("a stale rev is rejected", () =>
     fb.updateDoc(fb.doc(fb.db,"workspaces",WS,"boards",boardId), {
       data: JSON.stringify(board),
@@ -120,8 +114,7 @@ async function run(u) {
       rev: 0                       // deliberately stale
     }));
 
-  // And the merge really does run inside the write: saveBoard hands the server's
-  // current copy to `reconcile` rather than trusting what we last read.
+  // saveBoard hands `reconcile` the server's current copy, not what we last read.
   let sawRemote = null;
   await b.saveBoard(boardId, board, (remoteData) => {
     sawRemote = remoteData;
