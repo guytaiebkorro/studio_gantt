@@ -30,38 +30,34 @@ export const EDGE_PX = 400;
 // Default palette offered in the editor swatches and used for new groups.
 export const COLORS = ["#f4795b","#f0a12e","#e9c46a","#7fb069","#4ecdc4","#5c9ded","#a78bda","#ef7fae"];
 
-// Autosave timing (ms).
+// Autosave timing (ms). THIS IS THE WHOLE COLLABORATION LATENCY — the listener
+// in sync.js delivers in well under a second, so whatever is set here is how far
+// behind your teammates are. It costs the editor nothing either way: the local
+// render already happened.
 //
-// Raised from 2.5s/15s when moving to Firestore. The Spark plan allows roughly
-// 20,000 writes/day; at 2.5s idle, continuous editing is ~4 writes/min, so a
-// single editor could spend ~2,000 writes in a working day and three or four
-// would brush the ceiling. Each save also costs 2 billed rules reads for the
-// role lookup. The 3-way merge makes the longer window safe — a teammate's
-// concurrent edits are folded in rather than lost.
-export const SAVE_IDLE_MS = 5000;   // save this long after the last edit
-export const SAVE_MAX_MS = 30000;   // ...but force a save at least this often during continuous editing
+// Not write-quota bound at these values. Every markDirty() call site is a
+// completed gesture, never a keystroke, so the edit count is set by how fast a
+// person finishes a drag and not by this timer — five editors at ~300 edits each
+// is ~1,500 writes/day against a 20,000 quota.
+//
+// WHAT DOES BIND IS PER-DOCUMENT: every editor writes the same board document,
+// and Firestore's sustained limit is ~1 write/sec/document. Do not drop the idle
+// below ~1.5s while a board is one document — you would split multi-drag bursts
+// into separate writes and contend for no perceptual gain. Per-task documents
+// (docs/plans/2026-09-03-live-sync.md §4) are what lifts that ceiling.
+//
+// SAVE_MAX_MS must stay above SAVE_IDLE_MS: scheduleCloudSave waits
+// min(IDLE, MAX - elapsed), so a smaller MAX would always win and kill the knob.
+export const SAVE_IDLE_MS = 2000;   // save this long after the last edit
+export const SAVE_MAX_MS = 8000;    // ...but at least this often while editing continuously
 
-// How many times to retry a save that came back permission-denied before
-// believing the denial.
-//
-// A LOST OPTIMISTIC-CONCURRENCY RACE AND A REVOKED ROLE ARE THE SAME ERROR.
-// firestore.rules requires `rev == resource.data.rev + 1`, so a write built on a
-// stale rev is rejected with permission-denied — indistinguishable from "you are
-// no longer an editor" without re-reading the member document. A lost race
-// succeeds on the next attempt against the fresh rev; a revoked role fails every
-// time. So: retry a few times, then treat it as real and re-read the role.
-//
-// Small on purpose. The transaction inside saveBoard already absorbs contention
-// it can observe; this only covers a writer the transaction cannot see, which
-// means a stale tab running an older build. If this ever needs raising, the bug
-// is elsewhere.
+// A LOST rev RACE AND A REVOKED ROLE ARE THE SAME ERROR CODE. The rules require
+// `rev == resource.data.rev + 1`, so a stale write is permission-denied —
+// indistinguishable from "you are no longer an editor" without re-reading the
+// member document. A race succeeds on the next attempt; a real denial fails
+// every time. Small on purpose: the transaction already absorbs the contention
+// it can see, so this only covers a stale tab on an older build.
 export const SAVE_RETRY_MAX = 3;
-
-// NOTE: POLL_MS / POLL_ENABLED are gone. The 5s setInterval poll they gated was
-// never switched on — it billed one read per tick per tab whether or not
-// anything had changed, so nobody saw a teammate's edit without pressing 🔄.
-// src/sync.js now holds an onSnapshot listener, which bills one read per change
-// actually delivered: live AND cheaper than the poll it replaced.
 
 // Name shown for a workspace whose registry has none yet (pre-workspace bins).
 export const DEFAULT_WORKSPACE_NAME = "Workspace";
