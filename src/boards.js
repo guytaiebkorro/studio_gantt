@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 import { DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { $, toast, chartPane } from "./dom.js";
-import { S, clearDirty } from "./state.js";
+import { S, clearDirty, normalizeDayMarks } from "./state.js";
 import { canWrite, isAdmin, canAssignRole, requireEdit, requireWrite, applyRole } from "./permissions.js";
 import { dateToX, today } from "./dates.js";
 import { backend } from "./backend/backend.js";
@@ -141,10 +141,37 @@ export async function loadRegistry() {
   if (!cloudConnected()) return;
   const reg = await backend.getRegistry();
   S.registry = reg.boards;
+  S.dayMarks = normalizeDayMarks(reg.dayMarks);
   // The workspace document is authoritative; the name we painted from cache may
   // be stale (or absent on a first visit). Repaint here so this function leaves
   // the UI consistent on its own, rather than relying on a later caller.
   if (reg.name) { S.workspaceName = reg.name; updateWorkspaceButton(); }
+}
+
+// Replace the workspace's marked days.
+//
+// requireWrite(), not requireEdit(): these belong to the workspace, and the
+// chart lock has no say — the same line newBoard() draws.
+//
+// Applied locally first so the chart repaints on the click rather than on the
+// round-trip, then rolled back if the write is refused. There is no undo behind
+// this (the toast is the only notice), because undo is built on snapshots of the
+// BOARD and this data deliberately isn't part of one.
+export async function saveDayMarks(marks) {
+  if (!requireWrite()) return;
+  if (!cloudConnected()) { toast("No workspace is open"); return; }
+  const next = normalizeDayMarks(marks);
+  const prev = S.dayMarks;
+  S.dayMarks = next;
+  render();
+  try {
+    await backend.putDayMarks(next);
+  } catch (err) {
+    S.dayMarks = prev;
+    render();
+    renderPanel();
+    toast("Couldn't save marked days: " + friendlyError(err));
+  }
 }
 
 
@@ -289,7 +316,10 @@ async function leaveActiveWorkspace() {
 // behind the gate.
 function clearLoadedBoard() {
   S.suppressAutosave = true;
-  S.registry = [];  S.cloudReady = false; S.baseState = null; S.loadedAt = 0;
+  // dayMarks goes with the registry: both are workspace data, and leaving one
+  // workspace's holidays painted over the next one's chart is a visible bug
+  // during a switch.
+  S.registry = [];  S.dayMarks = []; S.cloudReady = false; S.baseState = null; S.loadedAt = 0;
   S.state = {
     version: 1,
     settings: { viewMode: (S.state.settings && S.state.settings.viewMode) || "week" },
@@ -362,7 +392,15 @@ $("refresh-btn").addEventListener("click", () => { refreshNow(); });
 // to put the real ones back; wirePanel() replaces the handler set wholesale.
 export function installPanelHandlers() {
 wirePanel({
-  onOpen: () => renderPanel(),
+  // Re-read the workspace document on open. One extra read, and it is what
+  // makes a teammate's marked days appear without a reload — the workspace doc
+  // has no live listener, only the board does.
+  onOpen: async () => {
+    renderPanel();
+    try { await loadRegistry(); } catch (_) { return; }   // a stale panel beats an error toast here
+    render();
+    renderPanel();
+  },
   onSignOut: async () => {
     closeInvite();   // sign-out overrides an in-progress invite; closePanel() refuses while it is up
     closePanel();
@@ -388,6 +426,7 @@ wirePanel({
   onCommitRenameBoard: async (boardId, name) => { await renameBoard(boardId, name); renderPanel(); },
   onCopyLink: () => copyBoardLink(S.ws.boardId),
   onCopyBoardLink: (boardId) => copyBoardLink(boardId),
+  onSaveDayMarks: async (marks) => { await saveDayMarks(marks); renderPanel(); },
 
   // People. The panel is a view and never talks to Firestore itself, so the
   // roster arrives through this callback.

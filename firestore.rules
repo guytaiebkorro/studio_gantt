@@ -104,18 +104,33 @@ service cloud.firestore {
       allow create: if false;
       allow delete: if false;
 
-      // Field-level: editors maintain the board index, admins also rename.
-      // ownerEmail, createdAt, createdBy, schemaVersion and archived are
-      // immutable to every client.
+      // Field-level: editors maintain the board index and the marked days,
+      // admins also rename. ownerEmail, createdAt, createdBy, schemaVersion and
+      // archived are immutable to every client.
+      //
+      // dayMarks (coloured dates painted behind the chart) goes to editors as
+      // well as admins: someone who may move every bar on every board has no
+      // reason to be locked out of marking a holiday.
+      //
+      // Its guard is `!('dayMarks' in ...)`, NOT a bare `is list`. Every
+      // workspace document created before this feature has no such field, and a
+      // bare type test evaluates false on those — which would refuse every
+      // workspace rename and every board create for all of them, not just this.
+      // Per-entry shape is unchecked because rules cannot iterate a list; that
+      // is the same trust already placed in `boards`, and every reader
+      // normalizes (see normalizeDayMarks in src/state.js).
       allow update: if (
-             ( myRole(ws) == 'admin'  && onlyChanged(['name', 'boards']) )
-          || ( myRole(ws) == 'editor' && onlyChanged(['boards']) )
+             ( myRole(ws) == 'admin'  && onlyChanged(['name', 'boards', 'dayMarks']) )
+          || ( myRole(ws) == 'editor' && onlyChanged(['boards', 'dayMarks']) )
         )
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 120
         && request.resource.data.boards is list
-        && request.resource.data.boards.size() <= 200;
+        && request.resource.data.boards.size() <= 200
+        && ( !('dayMarks' in request.resource.data)
+             || ( request.resource.data.dayMarks is list
+                  && request.resource.data.dayMarks.size() <= 200 ) );
 
       // ===== boards =========================================================
 

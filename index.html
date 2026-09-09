@@ -361,6 +361,18 @@
   <div class="wp-scroll">
     <p class="wp-caption">Workspaces</p>
     <div id="wp-workspaces"></div>
+
+    <!-- Marked days live here, not in the toolbar, because they belong to the
+         WORKSPACE — one list behind every board in it. A toolbar control would
+         imply they are per board, which is the one thing they are not.
+
+         Collapsed by default: a seeded workspace carries ~20 entries at two
+         rows each, which would bury People under 40 lines of date fields on
+         every open. panel.js fills in the chevron, the count and the rows. -->
+    <p class="wp-caption wp-days-head" id="wp-days-caption" role="button" tabindex="0"
+       aria-expanded="false" aria-controls="wp-days" hidden></p>
+    <div id="wp-days"></div>
+
     <p class="wp-caption" id="wp-people-caption">People</p>
     <div id="wp-people"></div>
     <button class="wp-add" id="wp-invite-open" type="button" hidden>＋ Invite someone</button>

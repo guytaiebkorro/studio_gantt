@@ -45,6 +45,14 @@ const BOARDS = {
   "game-dev": [{ id: "b1", name: "Main" }, { id: "b2", name: "1.58.0 Tasks" }],
   "product":  [{ id: "b3", name: "My Board" }]
 };
+// One single-day mark and one range, so both shapes are loaded by default.
+export const DAY_MARKS = {
+  "game-dev": [
+    { id: "il-2026-yom-kippur", date: "2026-09-20", end: "2026-09-21", label: "Yom Kippur", color: "#a78bda" },
+    { id: "il-2026-purim",      date: "2026-03-03", end: "2026-03-03", label: "Purim",      color: "#a78bda" }
+  ],
+  "product": []
+};
 export const MEMBERS = [
   { email: "guy@korro.ai",   role: "admin",  signedIn: true,  isProtected: true,
     displayName: "Guy Taieb", invitedBy: "cli" },
@@ -68,7 +76,8 @@ function stubBackend() {
     // on every read. Returning the fixture array itself aliased it into
     // S.registry, so newBoard()'s push mutated the fixture and later
     // assertions saw boards a previous test had created.
-    boards: (BOARDS[backend.wsId] || []).map((b) => ({ ...b }))
+    boards: (BOARDS[backend.wsId] || []).map((b) => ({ ...b })),
+    dayMarks: (DAY_MARKS[backend.wsId] || []).map((m) => ({ ...m }))
   });
   backend.loadBoard = async () => ({
     data: { version: 1, settings: { viewMode: "week" }, groups: [], tasks: [] },
@@ -91,6 +100,7 @@ function stubBackend() {
   backend.renameBoard = async (id, name) => { calls.push(["renameBoard", id, name]); };
   backend.putBoards = async (b) => { calls.push(["putBoards", b.map((x) => x.name).join(",")]); };
   backend.putWorkspaceName = async (n) => { calls.push(["putWorkspaceName", n]); };
+  backend.putDayMarks = async (m) => { calls.push(["putDayMarks", m.map((x) => x.date).join(",")]); };
 }
 
 // Put the app into "signed in, workspace open" without touching the network.

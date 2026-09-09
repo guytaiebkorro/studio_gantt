@@ -32,14 +32,16 @@
 // @property {(name, data) => Promise<{id}>}                   createBoardData
 // @property {(boardId, name) => Promise<void>}                renameBoard  keeps the doc's own name in step
 // @property {(boardId) => Promise<void>}                      deleteBoardData  always rejects; see firestore.js
-// @property {() => Promise<{name, boards: Array<{id, name}>}>} getRegistry
+// @property {() => Promise<{name, boards: Array<{id, name}>, dayMarks: Array}>} getRegistry
+//           dayMarks is returned AS STORED; boards.js normalizes it
 // @property {(boards) => Promise<void>}                       putBoards         editor-level
+// @property {(dayMarks) => Promise<void>}                     putDayMarks       editor-level
 // @property {(name) => Promise<void>}                         putWorkspaceName  admin-level
 //
-// putBoards and putWorkspaceName are deliberately separate rather than one
-// putRegistry(name, boards): firestore.rules lets an EDITOR change the board
-// index but only an ADMIN change the workspace name, so a combined call would
-// have every editor's board-create rejected.
+// The three writers are deliberately separate rather than one
+// putRegistry(name, boards, dayMarks): firestore.rules lets an EDITOR change the
+// board index and the marked days but only an ADMIN change the workspace name,
+// so a combined call would have every editor's board-create rejected.
 //
 // Gone from the JSONBin adapter: `apiKey`, `discoverRegistryId()` and
 // `createRegistry()`. Discovery-by-content-shape existed only because JSONBin

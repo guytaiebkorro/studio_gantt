@@ -254,10 +254,15 @@ export class FirestoreBackend {
 
   // --- the workspace record -------------------------------------------------
 
-  // { name, boards: [{id, name}] }. `boards` is the board index, denormalized
-  // onto the workspace document; it is byte-identical to the shape the app's
-  // registry already used, so loadRegistry()/S.registry/renderBoardSelect() work
-  // unchanged.
+  // { name, boards: [{id, name}], dayMarks }. `boards` is the board index,
+  // denormalized onto the workspace document; it is byte-identical to the shape
+  // the app's registry already used, so loadRegistry()/S.registry/
+  // renderBoardSelect() work unchanged.
+  //
+  // `dayMarks` comes back as stored, only checked for being a list. Validating
+  // the entries here would mean importing state.js, and state.js -> sync.js ->
+  // backend.js -> here is a cycle. It is also not this file's job: normalizing
+  // happens in boards.js via normalizeDayMarks, which keeps this pure transport.
   async getRegistry() {
     const snap = await getDoc(this._ws());
     if (!snap.exists()) {
@@ -271,13 +276,21 @@ export class FirestoreBackend {
     const w = snap.data();
     return {
       name: w.name || "",
-      boards: Array.isArray(w.boards) ? w.boards.filter(b => b && b.id) : []
+      boards: Array.isArray(w.boards) ? w.boards.filter(b => b && b.id) : [],
+      dayMarks: Array.isArray(w.dayMarks) ? w.dayMarks : []
     };
   }
 
   // Editor-level: update the board index only.
   async putBoards(boards) {
     await withTimeout(updateDoc(this._ws(), { boards }), "Update board list");
+  }
+
+  // Editor-level: replace the marked days. A whole-array write, so the last
+  // writer wins — there is no merge here and deliberately none, see
+  // docs/plans/2026-09-09-marked-days.md §2.
+  async putDayMarks(dayMarks) {
+    await withTimeout(updateDoc(this._ws(), { dayMarks }), "Update marked days");
   }
 
   // Admin-level: rename the workspace. Separate from putBoards because the

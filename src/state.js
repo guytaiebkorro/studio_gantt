@@ -6,7 +6,7 @@
 // file, so all mutable state now lives as PROPERTIES of one shared object `S`.
 // Modules read/write `S.foo`; the live object is the single source of truth.
 // ---------------------------------------------------------------------------
-import { VIEW, COLLAPSE_KEY, VIEWTAB_KEY, COLORS, DEFAULT_WORKSPACE_NAME } from "./config.js";
+import { VIEW, COLLAPSE_KEY, VIEWTAB_KEY, DAYSOPEN_KEY, COLORS, DEFAULT_WORKSPACE_NAME } from "./config.js";
 import { scheduleCloudSave } from "./sync.js";
 import { render } from "./render/index.js";
 import { updateViewButtons } from "./ui/toolbar.js";
@@ -52,6 +52,11 @@ export const S = {
   ws: { id: "", boardId: "" }, // no apiKey. Nothing secret is ever held here or in localStorage.
   registry: [],                // [{ id, name }] boards in the active workspace, from the workspace doc
   workspaceName: DEFAULT_WORKSPACE_NAME, // authoritative copy lives on the workspace document
+  dayMarks: [],                // coloured dates painted behind the chart — WORKSPACE data, not board
+                               // data, so it never enters S.state, markDirty() or merge3()
+  // Whether the panel's Marked days list is expanded. Collapsed by default: a
+  // seeded workspace holds ~20 entries, and People sits below it.
+  dayMarksOpen: (() => { try { return localStorage.getItem(DAYSOPEN_KEY) === "1"; } catch (_) { return false; } })(),
   syncState: "idle",           // last value passed to setSync — shown in the workspace button's tooltip
   loadedAt: 0,                 // updatedAt we descend from; also the listener's self-echo filter
   baseState: null,             // 3-way merge ancestor. MUST be the last REMOTE version reconciled
@@ -159,6 +164,47 @@ export function normalizeCheckpoints(list) {
       label: typeof c.label === "string" ? c.label.trim() : ""
     }))
     .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+}
+
+// ---------------------------------------------------------------------------
+// Marked days
+//
+// Dated, coloured spans painted behind the whole chart — holidays, shutdowns,
+// freeze weeks. Stored on the WORKSPACE document as `dayMarks`, so one list
+// serves every board in the workspace.
+//
+// That placement is the whole reason this normalizer exists separately from the
+// board's: none of the board machinery applies. No markDirty, no autosave, no
+// merge3, no undo — boards.js writes the array straight through. See
+// docs/plans/2026-09-09-marked-days.md §2 for what that trades away.
+//
+// `end` is always filled in, so every reader can treat an entry as a range and
+// nothing has to branch on "is this a single day".
+// ---------------------------------------------------------------------------
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const MAX_DAY_MARKS = 200;      // mirrors the cap in firestore.rules
+const MAX_MARK_LABEL = 60;
+
+export function normalizeDayMarks(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(m => m && typeof m === "object" && DATE_RE.test(m.date))
+    .map(m => {
+      const date = m.date;
+      // A blank or backwards end is the single-day case, not an error worth
+      // dropping the date over.
+      const end = DATE_RE.test(m.end) && m.end > date ? m.end : date;
+      return {
+        id: typeof m.id === "string" && m.id ? m.id : uid("d"),
+        date,
+        end,
+        label: typeof m.label === "string" ? m.label.trim().slice(0, MAX_MARK_LABEL) : "",
+        // A bad colour costs you the colour, never the date.
+        color: HEX_RE.test(m.color) ? m.color : COLORS[0]
+      };
+    })
+    .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+    .slice(0, MAX_DAY_MARKS);
 }
 
 // ---------------------------------------------------------------------------
