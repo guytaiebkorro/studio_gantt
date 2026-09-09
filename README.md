@@ -40,6 +40,9 @@ artifact: the browser loads the modules as they are, so deploying is `git push`.
 - **Filter** by task or group name.
 - **Endless timeline** — scroll freely; the date range extends as you go.
 - **Israel work week** — weekend shading on **Friday–Saturday**, weeks start Sunday.
+- **Marked days** — coloured spans painted behind the chart for holidays, shutdowns and freeze
+  weeks. One list per **workspace**, so every board in it shows the same calendar. `tools/admin`
+  can seed the Israeli Jewish holidays for 2026–2027 into every workspace at once.
 - **Fast edits** — instant delete with an **Undo** toast, no confirm dialogs.
 - **Dark / light theme.**
 - **Live team sync** — a teammate's change lands on your screen without you asking.
@@ -253,6 +256,12 @@ Your last workspace and board are remembered per browser and reopened next time.
    a draft in your mail client. Someone added and never told will not know.
 6. **Local preferences don't follow you.** Collapsed groups, theme, and the Gantt/Tasks choice live in
    that browser's `localStorage`. Your *access* follows you everywhere, because it's on the server.
+7. **Marked days get none of the board's sync machinery.** They live on the workspace document, which
+   has no live listener, no 3-way merge and no undo: a teammate's change appears when you next open
+   the workspace or the panel, two people editing the list at once means one loses the whole array,
+   and removing a row is immediate and permanent. All three are cheap for a list of holidays edited a
+   few times a year, and all three would be wrong for task data — which is why they aren't task data.
+   See `docs/plans/2026-09-09-marked-days.md` §2 and §6.
 
 ---
 
@@ -267,7 +276,7 @@ styles/                 CSS by area (tokens, base, toolbar, list, chart, modals,
 src/
   main.js               bootstrap / window-level wiring
   config.js             app constants (geometry, colours, autosave timing)
-  state.js              the shared store `S`, plus normalize() and the hierarchy invariants
+  state.js              the shared store `S`, normalize(), the hierarchy invariants, normalizeDayMarks
   dates.js              date math, chart geometry, derived progress
   merge.js              the 3-way merge (pure, backend-agnostic)
   sync.js               autosave, the live listener, the merge policy, refresh, the sync dot
@@ -301,7 +310,7 @@ docs/plans/             design docs and decision records
 
 The app talks to storage only through a small **`StorageBackend`** interface — `loadBoard`,
 `saveBoard`, `watchBoard`, `createBoardData`, `renameBoard`, `deleteBoardData`, `getRegistry`,
-`putBoards`, `putWorkspaceName`. Firestore is one implementation, living entirely in
+`putBoards`, `putDayMarks`, `putWorkspaceName`. Firestore is one implementation, living entirely in
 `src/backend/firestore.js`. To use another, write a class with those methods and change the one line
 in `src/backend/backend.js`.
 
@@ -403,8 +412,15 @@ milestone. Parent dates are then rolled up from the children.
 The workspace document:
 
 ```
-{ name: "Studio", boards: [ { id: "<boardId>", name: "Main" } ], ownerEmail: "…", createdAt: … }
+{ name: "Studio", boards: [ { id: "<boardId>", name: "Main" } ], ownerEmail: "…", createdAt: …,
+  dayMarks: [ { id, date: "2026-04-01", end: "2026-04-02", label: "Pesach", color: "#a78bda" } ] }
 ```
+
+`dayMarks` is the marked-day list — one per workspace, drawn behind every board in it. `end` is
+always present (a single day has `end == date`), so readers never branch on it. It is absent on
+workspaces created before the feature, which every reader treats as empty. Unlike the board, it is
+written as a plain array with **no merge, no autosave and no undo**: see the trade-off in
+`docs/plans/2026-09-09-marked-days.md` §2.
 
 A member document — the exact key set the rules require, nulls explicit rather than omitted:
 
@@ -444,6 +460,7 @@ node bin/gantt-admin.js workspace:create --name "Studio" --admin someone@example
 node bin/gantt-admin.js workspace:list [--json]
 node bin/gantt-admin.js workspace:rename <wsId> --name "New name"
 node bin/gantt-admin.js workspace:delete <wsId> --yes        # recursive: members + boards too
+node bin/gantt-admin.js workspace:seed-holidays [<wsId>] [--color "#a78bda"] [--replace] [--dry-run]
 
 node bin/gantt-admin.js member:list <wsId> [--json]
 node bin/gantt-admin.js member:add <wsId> --email a@b.com --role admin|editor|viewer [--protected]
@@ -463,6 +480,15 @@ node bin/gantt-admin.js doctor
 `members.email` collection-group index, and per-workspace integrity — that a workspace still has an
 admin, that its protected founding member is intact, and that the denormalised board index hasn't
 drifted from the actual board documents.
+
+`workspace:seed-holidays` adds the Israeli Jewish holidays for 2026–2027 to a workspace's marked
+days, or — with no `wsId` — to **every workspace**, which is why it lives here rather than in the
+app: a signed-in client can only reach the workspaces it belongs to. The table is checked in at
+`tools/admin/src/holidays-il.js` with its Hebcal source URL in the header; **Chol HaMoed is
+excluded**, as those are working days, so Pesach and Sukkot are two entries each rather than one
+span. Seed ids are deterministic, so re-running only adds what is missing and leaves anything
+recoloured or renamed in the app alone; `--replace` is the deliberate way to overwrite that. Run
+`--dry-run` first — it is the only command here that touches every workspace at once.
 
 `workspace:create` makes a starter board and a **protected** founding admin. `workspace:delete` uses
 `recursiveDelete` and is the only thing that can remove board documents. `board:import` takes exactly

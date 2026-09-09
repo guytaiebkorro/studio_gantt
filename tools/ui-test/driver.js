@@ -75,6 +75,15 @@ async function seedBoard() {
         isMilestone: true, owner: "Guy", checkpoints: [] }
     ]
   });
+  // Marked days, relative to today for the same reason the tasks are: the shot
+  // has to show a stripe landing among the bars, not off the edge of whatever
+  // range today happens to produce. One range and one single day, since those
+  // are the two shapes.
+  const { normalizeDayMarks } = await import("../../src/state.js");
+  S.dayMarks = normalizeDayMarks([
+    { id: "d1", date: d(5), end: d(7), label: "Pesach", color: "#a78bda" },
+    { id: "d2", date: d(20), end: d(20), label: "Yom Kippur", color: "#a78bda" }
+  ]);
   render();
   return S;
 }
@@ -118,6 +127,22 @@ const SHOTS = {
     await sleep(150);          // let the roster land and the slide-over settle
     panel.openInvite();
     unveil();
+  },
+
+  // The workspace panel with the Marked days section: the date/end/label/colour
+  // grid, which has to stay aligned down the column at the panel's width.
+  async panel() {
+    await seedBoard();
+    const p = await import("../../src/ui/panel.js");
+    // Stubbed handlers, like invite() — the real ones reach Firestore for the
+    // roster and the section would photograph as a load error.
+    p.wirePanel(peopleHandlers());
+    const { S } = await import("../../src/state.js");
+    S.dayMarksOpen = true;     // collapsed by default; the shot is OF the section
+    p.renderPanel();
+    p.openPanel();
+    await sleep(150);          // let the roster land and the slide-over settle
+    unveil();                  // LAST: unveiling before the panel settles races the gate
   },
 
   // The chart, with checkpoint dots in every capsule and no hover card in the

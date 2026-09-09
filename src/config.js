@@ -66,6 +66,9 @@ export const DEFAULT_WORKSPACE_NAME = "Workspace";
 export const THEME_KEY = "gantt_theme_v1";
 export const COLLAPSE_KEY = "gantt_collapsed_v1";
 export const VIEWTAB_KEY = "gantt_viewtab_v1";
+// Whether the panel's Marked days list is expanded. A personal UI preference,
+// like the two above — the list itself lives on the workspace document.
+export const DAYSOPEN_KEY = "gantt_daysopen_v1";
 
 // Last-viewed workspace/board plus a cached workspace name, so the switcher can
 // paint before the network answers: { wsId, boards: {wsId: boardId}, names: {} }.

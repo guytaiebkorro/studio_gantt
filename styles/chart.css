@@ -30,6 +30,37 @@
   border-bottom: 1px solid var(--grid);
 }
 .row-line.group { background: var(--group-bg); }
+
+/* Marked days: holidays and shutdowns, painted behind the whole chart.
+   z-index 1 puts these above .grid-col and .row-line (both at the default auto)
+   and below everything that carries meaning — the today line is 6, arrows 7,
+   bars 8, milestones 9.
+   color-mix against `transparent` rather than a fixed backdrop is what lets one
+   stored hex work in both themes: the stripe TINTS what is behind it instead of
+   replacing it, so grid lines, weekend shading and the group-row wash all still
+   read through. Don't swap this for a theme token — there is nothing to theme. */
+.day-mark {
+  position: absolute; top: 0; bottom: 0; z-index: 1;
+  background: color-mix(in srgb, var(--mark-color) 22%, transparent);
+  border-inline: 1px solid color-mix(in srgb, var(--mark-color) 50%, transparent);
+  box-sizing: border-box;
+}
+/* In the date axis it is a ribbon along the BOTTOM, not a full-height tint:
+   .hdr-cell centres its day name and number vertically, and in day view (46px
+   columns) a full-height band would put the mark's label straight through them.
+   14px at the bottom clears that text in every view mode.
+   A block with an ellipsis, NOT a centred flex item: a flex item too wide for
+   its box overflows at BOTH ends, so a one-day mark at week zoom (22px) showed
+   the middle of its label — "n Kip" for Yom Kippur. This clips from the end and
+   still centres a label that fits. The hover card is what carries the full
+   label, which is why the body stripe and not this is the primary signal. */
+.day-mark.hdr {
+  top: auto; bottom: 0; height: 14px;
+  background: color-mix(in srgb, var(--mark-color) 55%, transparent);
+  border-inline: none;
+  font-size: 10px; font-weight: 700; line-height: 14px; text-align: center;
+  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 #today-line {
   position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px;
   background: var(--today-line); z-index: 6; pointer-events: none;

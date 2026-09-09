@@ -10,6 +10,7 @@ import {
   ROLES, MEMBER_KEYS, normalizeEmail, validateRole, validateWorkspaceId,
   validateWorkspaceName, slugify, emptyBoard, serializeBoard
 } from "./validate.js";
+import { HOLIDAYS_IL, HOLIDAY_COLOR, SEED_ID_PREFIX } from "./holidays-il.js";
 
 const CLI_ACTOR = "cli";
 
@@ -132,6 +133,61 @@ export async function workspaceRename({ wsId, name }) {
   await requireWorkspace(id);
   await wsRef(id).update({ name: wsName });
   return { wsId: id, wsName };
+}
+
+// --- workspace:seed-holidays ------------------------------------------------
+//
+// Adds the Israeli Jewish holidays to a workspace's marked days, or to every
+// workspace when wsId is omitted. Enumerating all of them is the reason this is
+// a CLI command and not something in the app: a client can only reach the
+// workspaces it is a member of.
+//
+// Idempotent because the seed ids are deterministic (holidays-il.js). Merging
+// on id means a re-run adds only what is missing and leaves alone anything a
+// person has since recoloured or relabelled in the app; --replace is the
+// deliberate way to overwrite that.
+const MAX_DAY_MARKS = 200;      // mirrors firestore.rules and src/state.js
+
+function seedMarks(color) {
+  return HOLIDAYS_IL.map((h) => ({ ...h, color }));
+}
+
+async function seedOne(id, marks, { replace }) {
+  const snap = await requireWorkspace(id);
+  const existing = Array.isArray(snap.data().dayMarks) ? snap.data().dayMarks : [];
+  const kept = replace
+    ? existing.filter((m) => !String(m && m.id || "").startsWith(SEED_ID_PREFIX))
+    : existing;
+  const have = new Set(kept.map((m) => m && m.id));
+  const added = marks.filter((m) => !have.has(m.id));
+
+  // Refuse rather than silently truncate — the rules would reject the write
+  // anyway, and a half-seeded workspace is worse than an untouched one.
+  const total = kept.length + added.length;
+  if (total > MAX_DAY_MARKS) {
+    throw new Error(
+      `Workspace "${id}" would end up with ${total} marked days, over the ${MAX_DAY_MARKS} limit. ` +
+      "Remove some in the app first."
+    );
+  }
+
+  const next = [...kept, ...added].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  return { wsId: id, added: added.length, skipped: marks.length - added.length, total: next.length, next };
+}
+
+export async function workspaceSeedHolidays({ wsId, color, replace, dryRun }) {
+  const marks = seedMarks(color || HOLIDAY_COLOR);
+  const ids = wsId
+    ? [validateWorkspaceId(wsId)]
+    : (await workspaceList()).map((w) => w.id);
+
+  const results = [];
+  for (const id of ids) {
+    const r = await seedOne(id, marks, { replace: !!replace });
+    if (!dryRun && r.added) await wsRef(id).update({ dayMarks: r.next });
+    results.push({ wsId: r.wsId, added: r.added, skipped: r.skipped, total: r.total });
+  }
+  return { dryRun: !!dryRun, color: color || HOLIDAY_COLOR, results };
 }
 
 // --- workspace:delete -------------------------------------------------------

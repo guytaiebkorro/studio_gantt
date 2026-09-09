@@ -46,6 +46,17 @@ export function taskTipHtml(t) {
           ${cps ? `<div class="tip-cps">${cps}</div>` : ""}`;
 }
 
+// The card for a marked day. Single-day marks show one date rather than a range
+// of one — `end` is always filled in, so the check is on the values, not on the
+// field being present.
+export function dayMarkTipHtml(m) {
+  const dates = m.end && m.end !== m.date
+    ? `${esc(m.date)} – ${esc(m.end)}`
+    : esc(m.date);
+  return `<div class="tip-name">${esc(m.label || "Marked day")}</div>
+          <div class="tip-dates">${dates}</div>`;
+}
+
 // The card for one dot. Deliberately narrower than the bar's: you pointed at a
 // single date, so it answers about that date.
 export function checkpointTipHtml(t, cp) {

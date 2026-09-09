@@ -11,7 +11,7 @@ import { ensureRange, chartWidth } from "../dates.js";
 import { S, isCollapsed, colorOf } from "../state.js";
 import { renderList } from "./list.js";
 import { renderTasksView } from "./tasksView.js";
-import { renderHeader, renderGrid, renderBars, renderDeps, positionTodayLine } from "./chart.js";
+import { renderHeader, renderGrid, renderDayMarks, renderBars, renderDeps, positionTodayLine } from "./chart.js";
 
 export function render() {
   ensureRange();
@@ -26,6 +26,9 @@ export function render() {
   renderList(rows);
   renderHeader(w);
   renderGrid(rows, w, h);
+  // After renderHeader, which clears the whole date axis, and before the bars,
+  // which must paint over the marks rather than under them.
+  renderDayMarks();
   renderBars(rows, w, h);
   renderDeps(rows);
   positionTodayLine(h);

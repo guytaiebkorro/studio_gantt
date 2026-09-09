@@ -9,8 +9,9 @@
 // It reads S, but only ever inside function bodies. Nothing here dereferences
 // an import at module-evaluation time.
 // ---------------------------------------------------------------------------
+import { DAYSOPEN_KEY } from "../config.js";
 import { $, esc, toast } from "../dom.js";
-import { S } from "../state.js";
+import { S, uid } from "../state.js";
 import { canWrite, canInvite, canAssignRole, isAdmin } from "../permissions.js";
 // share.js is a leaf — dom.js and state.js only — so this adds no cycle and
 // does not compromise the "pure view" rule above: it is a utility, not
@@ -70,6 +71,36 @@ function wireOnce() {
   $("wp-people").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-remove]");
     if (btn && handlers.onRemoveMember) handlers.onRemoveMember(btn.dataset.remove);
+  });
+
+  $("wp-days-caption").addEventListener("click", toggleDayMarks);
+  $("wp-days-caption").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();                 // Space would scroll the panel
+    toggleDayMarks();
+  });
+
+  // Marked days. Delegated, so re-rendering the section attaches nothing.
+  //
+  // `change` rather than `input`: it fires on blur for text and date fields and
+  // on commit for the colour picker, so a label is one write when you leave it
+  // rather than one per keystroke.
+  $("wp-days").addEventListener("change", () => commitDayMarks());
+  $("wp-days").addEventListener("click", (e) => {
+    if (e.target.closest(".wp-day-del")) {
+      e.target.closest(".wp-day").remove();
+      commitDayMarks();
+      return;
+    }
+    if (e.target.closest(".wp-day-add")) {
+      // Added with no date on purpose, so nothing is written until you pick
+      // one — normalizeDayMarks drops a dateless entry, so the blank row simply
+      // does not persist.
+      e.target.closest(".wp-day-add").insertAdjacentHTML("beforebegin",
+        markRow({ id: uid("d"), date: "", end: "", label: "", color: MARK_COLOR_FALLBACK }));
+      const row = $("wp-days").querySelector(".wp-day:last-of-type");
+      if (row) row.querySelector(".wp-day-date").focus();
+    }
   });
 
   // Invite dialog.
@@ -139,7 +170,106 @@ function onWorkspacesClick(e) {
 export function renderPanel() {
   renderAccount();
   renderWorkspaces();
+  renderDayMarks();
   renderPeople();
+}
+
+// ---------------------------------------------------------------------------
+// Marked days.
+//
+// Dated, coloured spans painted behind the chart. Workspace data, so a change
+// here does NOT go through markDirty()/autosave — it is reported straight out
+// through onSaveDayMarks and written to the workspace document.
+//
+// Rows commit on `change`, which for text, date and colour inputs means on
+// blur. There is no Save button: every commit is one whole-array write to a
+// document nobody else is hammering, and the app has no confirm dialogs
+// anywhere else either. A half-filled row costs nothing — normalizeDayMarks
+// drops any entry without a valid date, exactly as readCheckpoints() does.
+//
+// The second date is the optional end; blank means a single day, and the
+// normalizer coerces it, so nothing here has to know that rule.
+// ---------------------------------------------------------------------------
+const MARK_COLOR_FALLBACK = "#a78bda";
+
+export function toggleDayMarks() {
+  S.dayMarksOpen = !S.dayMarksOpen;
+  try { localStorage.setItem(DAYSOPEN_KEY, S.dayMarksOpen ? "1" : "0"); } catch (_) {}
+  renderDayMarks();
+}
+
+function renderDayMarks() {
+  const box = $("wp-days");
+  const caption = $("wp-days-caption");
+  if (!box) return;
+
+  const live = S.ws.id && S.gate === "open";
+  if (caption) caption.hidden = !live;
+  if (!live) { box.innerHTML = ""; return; }
+
+  const marks = S.dayMarks || [];
+  const mayEdit = canWrite();
+
+  // The count belongs on the header, not inside the list: collapsed is the
+  // default, so it is the only thing saying whether there is anything in there.
+  if (caption) {
+    caption.setAttribute("aria-expanded", String(S.dayMarksOpen));
+    caption.innerHTML =
+      `<svg class="wp-chev" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>` +
+      `<span>Marked days</span>` +
+      (marks.length ? `<span class="wp-days-count">${marks.length}</span>` : "");
+  }
+  box.hidden = !S.dayMarksOpen;
+  // Nothing is built while collapsed — 20 entries is 20 date pickers, and the
+  // panel repaints on every state change.
+  if (!S.dayMarksOpen) { box.innerHTML = ""; return; }
+
+  if (!mayEdit) {
+    box.innerHTML = marks.length
+      ? marks.map(readOnlyMarkRow).join("")
+      : `<p class="wp-empty">No marked days.</p>`;
+    return;
+  }
+  box.innerHTML =
+    marks.map(markRow).join("") +
+    `<button class="wp-add wp-day-add" type="button">＋ Add day</button>`;
+}
+
+function readOnlyMarkRow(m) {
+  return `<div class="wp-day ro">` +
+      `<span class="wp-day-swatch" style="background:${esc(m.color)}"></span>` +
+      `<span class="wp-day-when">${esc(m.date)}${m.end && m.end !== m.date ? " – " + esc(m.end) : ""}</span>` +
+      `<span class="wp-day-label">${esc(m.label || "")}</span>` +
+    `</div>`;
+}
+
+function markRow(m) {
+  // An end equal to the start is the single-day case and shows as blank, so the
+  // field reads as "and optionally, until…" rather than as a duplicate.
+  const end = m.end && m.end !== m.date ? m.end : "";
+  return `<div class="wp-day" data-id="${esc(m.id)}">` +
+      `<input type="date" class="wp-day-date" value="${esc(m.date)}" aria-label="Date">` +
+      `<input type="date" class="wp-day-end" value="${esc(end)}" aria-label="End date (optional)">` +
+      `<input type="text" class="wp-day-label" value="${esc(m.label || "")}" placeholder="Label…" maxlength="60" aria-label="Label">` +
+      `<input type="color" class="wp-day-color" value="${esc(m.color)}" aria-label="Colour">` +
+      `<button class="wp-icon wp-day-del" type="button" title="Remove this day" aria-label="Remove this day">×</button>` +
+    `</div>`;
+}
+
+// The DOM is the truth while editing — reading it back is what lets a row be
+// edited without re-rendering the section under the cursor.
+function readDayMarks() {
+  return Array.from($("wp-days").querySelectorAll(".wp-day[data-id]")).map((row) => ({
+    id: row.dataset.id,
+    date: row.querySelector(".wp-day-date").value,
+    end: row.querySelector(".wp-day-end").value,
+    label: row.querySelector(".wp-day-label").value,
+    color: row.querySelector(".wp-day-color").value
+  }));
+}
+
+function commitDayMarks() {
+  if (handlers.onSaveDayMarks) handlers.onSaveDayMarks(readDayMarks());
 }
 
 // ---------------------------------------------------------------------------

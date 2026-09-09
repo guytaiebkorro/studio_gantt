@@ -9,7 +9,7 @@ import { addDays, diffDays, parseD, fmtD, dateToX, today, dayWidth, totalDays, c
 import { S, isCollapsed } from "../state.js";
 import { attachBarDrag, attachMilestoneDrag, isSelected } from "../ui/interactions.js";
 import { attachTip, hideTip } from "../ui/tooltip.js";
-import { hasTip, taskTipHtml, checkpointTipHtml, isOutside } from "../ui/taskTip.js";
+import { hasTip, taskTipHtml, checkpointTipHtml, dayMarkTipHtml, isOutside } from "../ui/taskTip.js";
 import { rowIndexOfTask } from "./index.js";
 
 export function renderHeader(w) {
@@ -99,6 +99,55 @@ export function renderGrid(rows, w, h) {
     line.style.top = (idx * ROW_H) + "px";
     chartBody.appendChild(line);
   });
+}
+
+// Coloured spans behind the chart — holidays, shutdowns. One strip in the body
+// and one in the date axis, per mark.
+//
+// NOT a class on .grid-col, the way weekend shading works: in month view there
+// is one column per month, so a per-column class cannot express a single day at
+// all. An absolutely positioned strip is the same code in all three view modes.
+//
+// Pointer events stay ON so the hover card works. That changes no behaviour: a
+// pointerdown here bubbles to the #chart-body handler in ui/interactions.js,
+// whose `closest(".bar, .milestone")` misses, so it clears the selection —
+// exactly what clicking empty chart space already did. A strip never shadows a
+// bar either; bars are appended after it AND sit higher in the stack.
+export function renderDayMarks() {
+  chartBody.querySelectorAll(".day-mark").forEach(e => e.remove());
+  chartHeader.querySelectorAll(".day-mark").forEach(e => e.remove());
+  const dw = dayWidth();
+  const max = chartWidth();
+  for (const m of S.dayMarks || []) {
+    const from = parseD(m.date), to = parseD(m.end || m.date);
+    if (to < S.rangeStart || from > S.rangeEnd) continue;
+    // Clamped, and not only for looks: #chart-body has an explicit width, but an
+    // absolutely positioned child reaching past it still enlarges #chart-pane's
+    // scrollable area — which would add phantom scroll at the timeline's edge and
+    // fight the endless-timeline extension.
+    const left = Math.max(0, dateToX(from));
+    const width = Math.min(max, dateToX(to) + dw) - left;
+    if (width <= 0) continue;
+
+    const strip = document.createElement("div");
+    strip.className = "day-mark";
+    strip.style.left = left + "px";
+    strip.style.width = width + "px";
+    strip.style.setProperty("--mark-color", m.color);
+    attachTip(strip, dayMarkTipHtml(m));
+    chartBody.appendChild(strip);
+
+    // The header copy carries the label, so the marked days read without
+    // hovering anything — the job .hdr-cell.weekend already does for weekends.
+    const hdr = document.createElement("div");
+    hdr.className = "day-mark hdr";
+    hdr.style.left = left + "px";
+    hdr.style.width = width + "px";
+    hdr.style.setProperty("--mark-color", m.color);
+    hdr.textContent = m.label || "";
+    attachTip(hdr, dayMarkTipHtml(m));
+    chartHeader.appendChild(hdr);
+  }
 }
 
 export function renderBars(rows, w, h) {

@@ -33,6 +33,14 @@ gantt-admin — provision and manage Gantt workspaces
   workspace:rename <wsId> --name "New name"
   workspace:delete <wsId> --yes          (recursive: members + boards too)
 
+  workspace:seed-holidays [<wsId>] [--color "#a78bda"] [--replace] [--dry-run]
+      Add the Israeli Jewish holidays for 2026-2027 to a workspace's marked
+      days — the coloured spans the chart paints behind everything. With no
+      wsId, EVERY workspace. Chol HaMoed is not included; see src/holidays-il.js.
+      Safe to re-run: entries are matched by id, so ones already there are left
+      exactly as they are, including any recoloured or renamed since in the app.
+      --replace overwrites those. Run --dry-run first.
+
   member:list <wsId> [--json]
   member:add <wsId> --email a@b.com --role admin|editor|viewer [--protected]
   member:set-role <wsId> --email a@b.com --role admin|editor|viewer
@@ -145,6 +153,26 @@ async function main() {
     case "workspace:rename": {
       const r = await cmd.workspaceRename({ wsId: pos[0], name: need(flags, "name") });
       console.log(`Renamed "${r.wsId}" to "${r.wsName}"`);
+      break;
+    }
+
+    case "workspace:seed-holidays": {
+      const r = await cmd.workspaceSeedHolidays({
+        wsId: pos[0],
+        color: flags.color === true ? undefined : flags.color,
+        replace: !!flags.replace,
+        dryRun: !!flags["dry-run"]
+      });
+      table(r.results, [
+        { label: "WORKSPACE", get: (w) => w.wsId },
+        { label: "ADDED", get: (w) => w.added },
+        { label: "ALREADY THERE", get: (w) => w.skipped },
+        { label: "TOTAL MARKS", get: (w) => w.total }
+      ]);
+      const added = r.results.reduce((n, w) => n + w.added, 0);
+      console.log(r.dryRun
+        ? `\nDry run — nothing written. Would add ${added} entr${added === 1 ? "y" : "ies"} in ${r.results.length} workspace(s), colour ${r.color}.`
+        : `\nAdded ${added} entr${added === 1 ? "y" : "ies"} across ${r.results.length} workspace(s), colour ${r.color}.`);
       break;
     }
 
